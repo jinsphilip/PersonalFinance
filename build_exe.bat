@@ -18,7 +18,7 @@ set "VPY=venv\Scripts\python.exe"
 
 echo [build] Installing dependencies + PyInstaller...
 "%VPY%" -m pip install --upgrade pip >nul
-"%VPY%" -m pip install -r requirements.txt pyinstaller
+"%VPY%" -m pip install -r requirements.txt "pyinstaller>=6.11"
 if errorlevel 1 (
     echo [error] Install failed.
     pause
@@ -32,7 +32,6 @@ REM --hidden-import flask_sqlalchemy ensures the ORM is collected.
     --add-data "templates;templates" ^
     --add-data "static;static" ^
     --hidden-import flask_sqlalchemy ^
-    --collect-submodules sqlalchemy ^
     app.py
 if errorlevel 1 (
     echo [error] Build failed.

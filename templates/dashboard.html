@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · FinTracker{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="nw-hero">
+  <div>
+    <div class="nw-label">Total Net Worth</div>
+    <div class="nw-value" id="nwValue">—</div>
+    <div class="nw-meta">
+      <div class="nw-meta-item">
+        <span class="nw-meta-label">Total Assets</span>
+        <span class="nw-meta-value" id="nwAssets">—</span>
+      </div>
+      <div class="nw-meta-item">
+        <span class="nw-meta-label">Total Liabilities</span>
+        <span class="nw-meta-value red" id="nwLiabilities">—</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="charts-row">
+  <div class="chart-box">
+    <div class="chart-title">Asset Allocation</div>
+    <canvas id="allocationChart"></canvas>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">Assets vs Liabilities</div>
+    <canvas id="balanceChart"></canvas>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Recent Income</span>
+    <a href="/income" class="btn btn-secondary">View all</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Type</th><th>Source</th><th>Date</th><th style="text-align:right">Amount</th></tr>
+      </thead>
+      <tbody id="incomeBody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allocationChart, balanceChart;
+
+async function loadDashboard() {
+  const d = await apiGet('/api/dashboard');
+  document.getElementById('nwValue').textContent = fmt(d.net_worth);
+  document.getElementById('nwAssets').textContent = fmt(d.total_assets);
+  document.getElementById('nwLiabilities').textContent = fmt(d.total_liabilities);
+
+  // Recent income table first, so chart issues never blank the data.
+  const body = document.getElementById('incomeBody');
+  if (!d.recent_income.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty">No income recorded yet</td></tr>';
+  } else {
+    body.innerHTML = d.recent_income.map(i => {
+      const badge = i.income_type === 'salary' ? 'badge-blue' : 'badge-green';
+      const source = i.income_type === 'salary' ? esc(i.employer) : esc(i.stock_name);
+      return `<tr>
+        <td><span class="badge ${badge}">${esc(i.income_type)}</span></td>
+        <td>${source || '—'}</td>
+        <td>${fmtDate(i.date)}</td>
+        <td style="text-align:right" class="gain">${fmt(i.amount)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  if (typeof Chart === 'undefined') return;  // charting lib unavailable; data already shown
+
+  const labels = Object.keys(d.breakdown).filter(k => d.breakdown[k] > 0);
+  const values = labels.map(k => d.breakdown[k]);
+  const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#00BCD4', '#FFC107'];
+
+  if (allocationChart) allocationChart.destroy();
+  allocationChart = new Chart(document.getElementById('allocationChart'), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 14, font: { size: 12 } } },
+        tooltip: { callbacks: { label: c => ` ${c.label}: ${fmt(c.raw)}` } }
+      }
+    }
+  });
+
+  if (balanceChart) balanceChart.destroy();
+  balanceChart = new Chart(document.getElementById('balanceChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Assets', 'Liabilities', 'Net Worth'],
+      datasets: [{
+        data: [d.total_assets, d.total_liabilities, d.net_worth],
+        backgroundColor: ['#4CAF50', '#f44336', '#1a1a2e'], borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.raw)}` } } },
+      scales: { y: { ticks: { callback: v => '₹' + (v / 100000).toFixed(1) + 'L' } } }
+    }
+  });
+}
+
+loadDashboard().catch(() => showToast('Failed to load dashboard', 'error'));
+</script>
+{% endblock %}

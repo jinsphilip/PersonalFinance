@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Mutual Funds · FinTracker{% endblock %}
+{% block page_title %}Mutual Funds{% endblock %}
+
+{% block content %}
+<div class="cards-row">
+  <div class="card"><div class="card-label">Invested</div><div class="card-value" id="mfInvested">—</div></div>
+  <div class="card"><div class="card-label">Current Value</div><div class="card-value" id="mfCurrent">—</div></div>
+  <div class="card"><div class="card-label">Total Gain/Loss</div><div class="card-value" id="mfGain">—</div></div>
+  <div class="card"><div class="card-label">Funds</div><div class="card-value" id="mfCount">—</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Holdings</span>
+    <div class="actions">
+      <button class="btn btn-secondary" id="refreshBtn">↻ Refresh NAVs</button>
+      <button class="btn btn-primary" onclick="openAdd()">+ Add Fund</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Platform</th><th>Fund</th><th style="text-align:right">Units</th>
+          <th style="text-align:right">Avg NAV</th><th style="text-align:right">Cur NAV</th>
+          <th style="text-align:right">Invested</th><th style="text-align:right">Current</th>
+          <th style="text-align:right">Gain/Loss</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="formModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Fund</h3>
+      <button class="modal-close" onclick="closeModal('formModal')">&times;</button>
+    </div>
+    <form id="mfForm" onsubmit="return saveForm(event)">
+      <div class="modal-body">
+        <input type="hidden" name="id" id="mfId">
+        <div class="form-row">
+          <div class="form-group"><label>Platform</label><input name="platform" required placeholder="Groww / Zerodha Coin"></div>
+          <div class="form-group"><label>Folio Number</label><input name="folio_number" placeholder="Optional"></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Fund Name</label><input name="fund_name" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Units</label><input name="units" type="number" step="any" required></div>
+          <div class="form-group"><label>AMFI Scheme Code</label><input name="scheme_code" placeholder="e.g. 118825 (for live NAV)"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Avg NAV (₹)</label><input name="avg_nav" type="number" step="any" required></div>
+          <div class="form-group"><label>Current NAV (₹)</label><input name="current_nav" type="number" step="any" required></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Investment Date</label><input name="investment_date" type="date"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const API = '/api/mutual-funds';
+let rows = [];
+
+async function load() {
+  rows = await apiGet(API);
+  let inv = 0, cur = 0;
+  rows.forEach(r => { inv += r.invested_value; cur += r.current_value; });
+  document.getElementById('mfInvested').textContent = fmt(inv);
+  document.getElementById('mfCurrent').textContent = fmt(cur);
+  const gainEl = document.getElementById('mfGain');
+  gainEl.textContent = fmt(cur - inv);
+  gainEl.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
+  document.getElementById('mfCount').textContent = rows.length;
+
+  const tb = document.getElementById('tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">No mutual funds yet. Add one to get started.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => `
+    <tr>
+      <td>${esc(r.platform)}</td>
+      <td>${esc(r.fund_name)}</td>
+      <td style="text-align:right">${fmtNum(r.units, 3)}</td>
+      <td style="text-align:right">${fmtNum(r.avg_nav)}</td>
+      <td style="text-align:right">${fmtNum(r.current_nav)}</td>
+      <td style="text-align:right">${fmt(r.invested_value)}</td>
+      <td style="text-align:right">${fmt(r.current_value)}</td>
+      <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
+      <td><div class="actions">
+        <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
+        <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+function openAdd() {
+  document.getElementById('mfForm').reset();
+  document.getElementById('mfId').value = '';
+  document.getElementById('modalTitle').textContent = 'Add Fund';
+  openModal('formModal');
+}
+function openEdit(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('mfForm').reset();
+  fillForm('mfForm', r);
+  document.getElementById('modalTitle').textContent = 'Edit Fund';
+  openModal('formModal');
+}
+async function saveForm(e) {
+  e.preventDefault();
+  const data = formToObject('mfForm');
+  const id = data.id;
+  try {
+    if (id) await apiSend(`${API}/${id}`, 'PUT', data);
+    else await apiSend(API, 'POST', data);
+    closeModal('formModal');
+    showToast('Saved');
+    load();
+  } catch { showToast('Save failed', 'error'); }
+  return false;
+}
+function del(id) {
+  confirmDelete(async () => {
+    try { await apiSend(`${API}/${id}`, 'DELETE'); showToast('Deleted'); load(); }
+    catch { showToast('Delete failed', 'error'); }
+  });
+}
+
+document.getElementById('refreshBtn').onclick = async () => {
+  showToast('Fetching latest NAVs…');
+  try {
+    const r = await apiSend('/api/refresh-prices', 'POST');
+    showToast(`Updated ${r.updated_mf} fund(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
+    load();
+  } catch { showToast('Refresh failed', 'error'); }
+};
+
+load().catch(() => showToast('Failed to load', 'error'));
+</script>
+{% endblock %}

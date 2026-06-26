@@ -39,11 +39,13 @@
         <div class="form-row">
           <div class="form-group"><label>Account Number</label><input name="account_number" placeholder="XXXX XXXX 1234"></div>
           <div class="form-group"><label>Account Type</label>
-            <select name="account_type">
-              <option>Savings</option><option>Current</option><option>Salary</option><option>NRE</option><option>NRO</option>
+            <select name="account_type" onchange="updateSubtype(this.value)">
+              <option>Savings</option><option>Current</option><option>Salary</option>
+              <option>NRE</option><option>NRO</option><option>Wallet</option>
             </select>
           </div>
         </div>
+        <input type="hidden" name="account_subtype" id="accountSubtype" value="bank">
         <div class="form-row single">
           <div class="form-group"><label>Balance (₹)</label><input name="balance" type="number" step="any" required></div>
         </div>
@@ -81,9 +83,13 @@ async function load() {
     </tr>`).join('');
 }
 
+function updateSubtype(type) {
+  document.getElementById('accountSubtype').value = type === 'Wallet' ? 'wallet' : 'bank';
+}
 function openAdd() {
   document.getElementById('bankForm').reset();
   document.getElementById('bankId').value = '';
+  document.getElementById('accountSubtype').value = 'bank';
   document.getElementById('modalTitle').textContent = 'Add Account';
   openModal('formModal');
 }
@@ -91,6 +97,7 @@ function openEdit(id) {
   const r = rows.find(x => x.id === id);
   document.getElementById('bankForm').reset();
   fillForm('bankForm', r);
+  document.getElementById('accountSubtype').value = r.account_subtype || 'bank';
   document.getElementById('modalTitle').textContent = 'Edit Account';
   openModal('formModal');
 }

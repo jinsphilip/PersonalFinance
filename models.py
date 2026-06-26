@@ -82,6 +82,7 @@ class BankAccount(db.Model):
     bank_name = db.Column(db.String(100), nullable=False)
     account_number = db.Column(db.String(50))
     account_type = db.Column(db.String(50), nullable=False)
+    account_subtype = db.Column(db.String(20), nullable=True, default='bank')  # bank | wallet
     balance = db.Column(db.Float, nullable=False, default=0)
 
     def to_dict(self):
@@ -90,6 +91,7 @@ class BankAccount(db.Model):
             'bank_name': self.bank_name,
             'account_number': self.account_number,
             'account_type': self.account_type,
+            'account_subtype': self.account_subtype or 'bank',
             'balance': self.balance,
         }
 
@@ -223,4 +225,50 @@ class Income(db.Model):
             'description': self.description,
             'stock_name': self.stock_name,
             'employer': self.employer,
+        }
+
+
+class Expense(db.Model):
+    __tablename__ = 'expenses'
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.String(20), nullable=False)
+    category = db.Column(db.String(50), nullable=False)
+    description = db.Column(db.String(200))
+    amount = db.Column(db.Float, nullable=False, default=0)
+    account_id = db.Column(db.Integer, db.ForeignKey('bank_accounts.id'), nullable=False)
+    account_name = db.Column(db.String(100))  # denormalised
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'date': self.date,
+            'category': self.category,
+            'description': self.description,
+            'amount': self.amount,
+            'account_id': self.account_id,
+            'account_name': self.account_name,
+        }
+
+
+class Transfer(db.Model):
+    __tablename__ = 'transfers'
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.String(20), nullable=False)
+    from_account_id = db.Column(db.Integer, db.ForeignKey('bank_accounts.id'), nullable=False)
+    to_account_id = db.Column(db.Integer, db.ForeignKey('bank_accounts.id'), nullable=False)
+    from_account_name = db.Column(db.String(100))
+    to_account_name = db.Column(db.String(100))
+    amount = db.Column(db.Float, nullable=False, default=0)
+    notes = db.Column(db.String(200))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'date': self.date,
+            'from_account_id': self.from_account_id,
+            'to_account_id': self.to_account_id,
+            'from_account_name': self.from_account_name,
+            'to_account_name': self.to_account_name,
+            'amount': self.amount,
+            'notes': self.notes,
         }

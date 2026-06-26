@@ -1,6 +1,6 @@
 """Populate database with realistic Indian financial sample data."""
 from app import app
-from models import db, MutualFund, Stock, BankAccount, Loan, ChitFund, FixedDeposit, CreditGiven, Income
+from models import db, MutualFund, Stock, BankAccount, Loan, ChitFund, FixedDeposit, CreditGiven, Income, Expense, Transfer
 
 with app.app_context():
     db.drop_all()
@@ -37,13 +37,17 @@ with app.app_context():
     # ── Bank Accounts ─────────────────────────────────────────────────────────
     banks = [
         BankAccount(bank_name='State Bank of India', account_number='XXXX XXXX 4821',
-                    account_type='Savings', balance=125000.00),
+                    account_type='Savings', account_subtype='bank', balance=125000.00),
         BankAccount(bank_name='HDFC Bank', account_number='XXXX XXXX 9034',
-                    account_type='Savings', balance=87500.50),
+                    account_type='Savings', account_subtype='bank', balance=87500.50),
         BankAccount(bank_name='ICICI Bank', account_number='XXXX XXXX 2267',
-                    account_type='Current', balance=45000.00),
+                    account_type='Current', account_subtype='bank', balance=45000.00),
+        BankAccount(bank_name='GPay', account_number='',
+                    account_type='Wallet', account_subtype='wallet', balance=2500.00),
     ]
     db.session.add_all(banks)
+    db.session.flush()  # get IDs before adding expenses/transfers
+    sbi, hdfc, icici, gpay = banks
 
     # ── Loans ─────────────────────────────────────────────────────────────────
     loans = [
@@ -121,6 +125,39 @@ with app.app_context():
                stock_name='INFY', employer=''),
     ]
     db.session.add_all(incomes)
+
+    # ── Expenses ──────────────────────────────────────────────────────────────
+    expenses = [
+        Expense(date='2026-06-20', category='Food', description='Zomato order',
+                amount=450.00, account_id=gpay.id, account_name='GPay'),
+        Expense(date='2026-06-18', category='Fuel', description='Petrol at HP bunk',
+                amount=2000.00, account_id=hdfc.id, account_name='HDFC Bank'),
+        Expense(date='2026-06-15', category='Utilities', description='Electricity bill',
+                amount=1850.00, account_id=sbi.id, account_name='State Bank of India'),
+        Expense(date='2026-06-10', category='Shopping', description='Amazon purchase',
+                amount=3200.00, account_id=hdfc.id, account_name='HDFC Bank'),
+        Expense(date='2026-06-05', category='Transport', description='Uber rides',
+                amount=620.00, account_id=gpay.id, account_name='GPay'),
+    ]
+    # Deduct from account balances
+    gpay.balance   -= (450.00 + 620.00)
+    hdfc.balance   -= (2000.00 + 3200.00)
+    sbi.balance    -= 1850.00
+    db.session.add_all(expenses)
+
+    # ── Transfers ─────────────────────────────────────────────────────────────
+    transfers = [
+        Transfer(date='2026-06-01', from_account_id=sbi.id, to_account_id=gpay.id,
+                 from_account_name='State Bank of India', to_account_name='GPay',
+                 amount=5000.00, notes='Monthly GPay top-up'),
+        Transfer(date='2026-06-12', from_account_id=hdfc.id, to_account_id=sbi.id,
+                 from_account_name='HDFC Bank', to_account_name='State Bank of India',
+                 amount=10000.00, notes='Transfer to SBI for EMI'),
+    ]
+    sbi.balance  += (5000.00 - 10000.00)   # received 5k, sent 10k net
+    hdfc.balance -= 10000.00
+    gpay.balance += 5000.00
+    db.session.add_all(transfers)
 
     db.session.commit()
     print("Database initialised with sample data successfully!")

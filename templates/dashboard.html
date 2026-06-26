@@ -20,6 +20,14 @@
   </div>
 </div>
 
+<div class="cards-row" style="margin-bottom:24px;">
+  <div class="card">
+    <div class="card-label">This Month Expenses</div>
+    <div class="card-value red" id="monthlyExp">—</div>
+    <div class="card-sub"><a href="/expenses" style="color:#4CAF50;text-decoration:none;font-size:12px;">View all →</a></div>
+  </div>
+</div>
+
 <div class="charts-row">
   <div class="chart-box">
     <div class="chart-title">Asset Allocation</div>
@@ -28,6 +36,20 @@
   <div class="chart-box">
     <div class="chart-title">Assets vs Liabilities</div>
     <canvas id="balanceChart"></canvas>
+  </div>
+</div>
+
+<div class="charts-row">
+  <div class="chart-box">
+    <div class="chart-title">Spending by Category (This Month)</div>
+    <canvas id="expenseChart"></canvas>
+  </div>
+  <div class="chart-box" style="display:flex;align-items:center;justify-content:center;">
+    <div style="text-align:center;color:#9ca3af;">
+      <div style="font-size:36px;">₹</div>
+      <div id="expTotal" style="font-size:20px;font-weight:700;color:#1a1a2e;margin-top:8px;">—</div>
+      <div style="font-size:12px;margin-top:4px;">Total this month</div>
+    </div>
   </div>
 </div>
 
@@ -49,13 +71,15 @@
 
 {% block scripts %}
 <script>
-let allocationChart, balanceChart;
+let allocationChart, balanceChart, expenseChart;
 
 async function loadDashboard() {
   const d = await apiGet('/api/dashboard');
   document.getElementById('nwValue').textContent = fmt(d.net_worth);
   document.getElementById('nwAssets').textContent = fmt(d.total_assets);
   document.getElementById('nwLiabilities').textContent = fmt(d.total_liabilities);
+  document.getElementById('monthlyExp').textContent = fmt(d.monthly_expenses);
+  document.getElementById('expTotal').textContent = fmt(d.monthly_expenses);
 
   // Recent income table first, so chart issues never blank the data.
   const body = document.getElementById('incomeBody');
@@ -109,6 +133,32 @@ async function loadDashboard() {
       scales: { y: { ticks: { callback: v => '₹' + (v / 100000).toFixed(1) + 'L' } } }
     }
   });
+
+  // Spending by category chart
+  const expLabels = Object.keys(d.expense_by_category);
+  const expValues = expLabels.map(k => d.expense_by_category[k]);
+  const expColors = ['#FF6384','#36A2EB','#FFCE56','#4BC0C0','#9966FF','#FF9F40',
+                     '#4CAF50','#F44336','#2196F3','#FF5722','#9C27B0','#607D8B'];
+  if (expenseChart) expenseChart.destroy();
+  if (expLabels.length) {
+    expenseChart = new Chart(document.getElementById('expenseChart'), {
+      type: 'doughnut',
+      data: { labels: expLabels, datasets: [{ data: expValues, backgroundColor: expColors.slice(0, expLabels.length), borderWidth: 0 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { padding: 12, font: { size: 11 } } },
+          tooltip: { callbacks: { label: c => ` ${c.label}: ${fmt(c.raw)}` } }
+        }
+      }
+    });
+  } else {
+    const ctx = document.getElementById('expenseChart').getContext('2d');
+    ctx.font = '14px Segoe UI';
+    ctx.fillStyle = '#9ca3af';
+    ctx.textAlign = 'center';
+    ctx.fillText('No expenses this month', ctx.canvas.width / 2, ctx.canvas.height / 2);
+  }
 }
 
 loadDashboard().catch(() => showToast('Failed to load dashboard', 'error'));

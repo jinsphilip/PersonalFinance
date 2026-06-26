@@ -57,6 +57,25 @@ async function loadDashboard() {
   document.getElementById('nwAssets').textContent = fmt(d.total_assets);
   document.getElementById('nwLiabilities').textContent = fmt(d.total_liabilities);
 
+  // Recent income table first, so chart issues never blank the data.
+  const body = document.getElementById('incomeBody');
+  if (!d.recent_income.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty">No income recorded yet</td></tr>';
+  } else {
+    body.innerHTML = d.recent_income.map(i => {
+      const badge = i.income_type === 'salary' ? 'badge-blue' : 'badge-green';
+      const source = i.income_type === 'salary' ? esc(i.employer) : esc(i.stock_name);
+      return `<tr>
+        <td><span class="badge ${badge}">${esc(i.income_type)}</span></td>
+        <td>${source || '—'}</td>
+        <td>${fmtDate(i.date)}</td>
+        <td style="text-align:right" class="gain">${fmt(i.amount)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  if (typeof Chart === 'undefined') return;  // charting lib unavailable; data already shown
+
   const labels = Object.keys(d.breakdown).filter(k => d.breakdown[k] > 0);
   const values = labels.map(k => d.breakdown[k]);
   const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#00BCD4', '#FFC107'];
@@ -90,22 +109,6 @@ async function loadDashboard() {
       scales: { y: { ticks: { callback: v => '₹' + (v / 100000).toFixed(1) + 'L' } } }
     }
   });
-
-  const body = document.getElementById('incomeBody');
-  if (!d.recent_income.length) {
-    body.innerHTML = '<tr><td colspan="4" class="empty">No income recorded yet</td></tr>';
-  } else {
-    body.innerHTML = d.recent_income.map(i => {
-      const badge = i.income_type === 'salary' ? 'badge-blue' : 'badge-green';
-      const source = i.income_type === 'salary' ? esc(i.employer) : esc(i.stock_name);
-      return `<tr>
-        <td><span class="badge ${badge}">${esc(i.income_type)}</span></td>
-        <td>${source || '—'}</td>
-        <td>${fmtDate(i.date)}</td>
-        <td style="text-align:right" class="gain">${fmt(i.amount)}</td>
-      </tr>`;
-    }).join('');
-  }
 }
 
 loadDashboard().catch(() => showToast('Failed to load dashboard', 'error'));

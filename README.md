@@ -18,11 +18,23 @@ and income from salary + dividends. Amounts in INR.
 
 ## Quick Start
 
+**One-click launcher** (creates a virtual environment, installs dependencies, seeds the
+database on first run, and starts the app):
+
+- **Windows** — double-click `run.bat` (or run it from a terminal).
+- **macOS / Linux** — `bash run.sh`
+
+**Manual** (if you prefer to run the steps yourself):
+
 ```bash
-pip install -r requirements.txt
-python init_db.py     # initialise finance.db with sample data
+python -m pip install -r requirements.txt
+python init_db.py     # initialise finance.db with sample data (first run only)
 python app.py         # http://localhost:5000
 ```
+
+> On Windows, if `python` isn't found use the launcher: `py -3 -m pip install ...`.
+> Using a virtual environment (`python -m venv venv`) is recommended — the launcher
+> scripts above do this for you.
 
 Open <http://localhost:5000> in your browser.
 

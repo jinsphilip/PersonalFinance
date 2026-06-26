@@ -1,11 +1,29 @@
+import os
+import sys
 from datetime import date
 
 from flask import Flask, request, jsonify, render_template
 from models import db, MutualFund, Stock, BankAccount, Loan, ChitFund, FixedDeposit, CreditGiven, Income
 import prices
 
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///finance.db'
+# When packaged as a standalone executable (PyInstaller), bundled files live in a
+# temporary extraction dir exposed as sys._MEIPASS, while the database must be stored
+# in a persistent, writable location next to the executable.
+FROZEN = getattr(sys, 'frozen', False)
+if FROZEN:
+    BUNDLE_DIR = sys._MEIPASS                       # read-only: templates + static
+    APP_DIR = os.path.dirname(sys.executable)       # writable: finance.db lives here
+    app = Flask(
+        __name__,
+        template_folder=os.path.join(BUNDLE_DIR, 'templates'),
+        static_folder=os.path.join(BUNDLE_DIR, 'static'),
+    )
+    db_path = os.path.join(APP_DIR, 'finance.db')
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
+else:
+    app = Flask(__name__)
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///finance.db'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
@@ -450,4 +468,13 @@ def api_refresh_prices():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    if FROZEN:
+        # Standalone .exe: ensure tables exist, open the browser, run a plain server.
+        import threading
+        import webbrowser
+        with app.app_context():
+            db.create_all()
+        threading.Timer(1.5, lambda: webbrowser.open('http://localhost:5000')).start()
+        app.run(host='127.0.0.1', port=5000, debug=False)
+    else:
+        app.run(debug=True, port=5000)

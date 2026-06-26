@@ -9,6 +9,11 @@ env/
 finance.db
 *.sqlite3
 
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
 # OS / editor
 .DS_Store
 .idea/

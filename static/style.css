@@ -176,6 +176,23 @@ tr:hover td { background: #fafbff; }
 .chit-pending { color: #e65100; }
 .chit-auctioned { color: #2e7d32; }
 
+/* ── Expense category badges ── */
+.cat-food        { background:#fff3e0; color:#e65100; }
+.cat-transport   { background:#e3f2fd; color:#1565c0; }
+.cat-shopping    { background:#fce4ec; color:#880e4f; }
+.cat-health      { background:#e8f5e9; color:#1b5e20; }
+.cat-entertainment{ background:#ede7f6; color:#4a148c; }
+.cat-utilities   { background:#e0f7fa; color:#006064; }
+.cat-rent        { background:#fff8e1; color:#f57f17; }
+.cat-education   { background:#e8eaf6; color:#1a237e; }
+.cat-fuel        { background:#fafafa; color:#424242; border:1px solid #e0e0e0; }
+.cat-chit        { background:#f3e5f5; color:#6a1b9a; }
+.cat-emi         { background:#ffebee; color:#b71c1c; }
+.cat-other       { background:#f3f4f6; color:#6b7280; }
+
+/* ── Transfer arrow ── */
+.transfer-arrow { color:#9ca3af; font-size:18px; }
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .sidebar { width: 200px; }

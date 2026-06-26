@@ -3,7 +3,7 @@ import sys
 from datetime import date
 
 from flask import Flask, request, jsonify, render_template
-from models import db, MutualFund, Stock, BankAccount, Loan, ChitFund, FixedDeposit, CreditGiven, Income
+from models import db, MutualFund, Stock, BankAccount, Loan, ChitFund, FixedDeposit, CreditGiven, Income, Expense, Transfer
 import prices
 
 # When packaged as a standalone executable (PyInstaller), bundled files live in a
@@ -69,6 +69,14 @@ def credits_page():
 def income_page():
     return render_template('income.html')
 
+@app.route('/expenses')
+def expenses_page():
+    return render_template('expenses.html')
+
+@app.route('/transfers')
+def transfers_page():
+    return render_template('transfers.html')
+
 
 # ─── Dashboard API ─────────────────────────────────────────────────────────────
 
@@ -87,6 +95,14 @@ def api_dashboard():
     income_entries = Income.query.order_by(Income.date.desc()).limit(5).all()
     recent_income = [i.to_dict() for i in income_entries]
 
+    this_month = date.today().strftime('%Y-%m')
+    monthly_expenses_rows = Expense.query.filter(Expense.date.startswith(this_month)).all()
+    monthly_expenses = sum(e.amount for e in monthly_expenses_rows)
+    expense_by_category = {}
+    for e in monthly_expenses_rows:
+        expense_by_category[e.category] = expense_by_category.get(e.category, 0) + e.amount
+    expense_by_category = {k: round(v, 2) for k, v in expense_by_category.items()}
+
     return jsonify({
         'net_worth': round(net_worth, 2),
         'total_assets': round(total_assets, 2),
@@ -99,6 +115,8 @@ def api_dashboard():
             'Credits Given': round(credit_total, 2),
         },
         'recent_income': recent_income,
+        'monthly_expenses': round(monthly_expenses, 2),
+        'expense_by_category': expense_by_category,
     })
 
 
@@ -199,6 +217,7 @@ def api_bank_accounts():
         bank_name=data['bank_name'],
         account_number=data.get('account_number', ''),
         account_type=data['account_type'],
+        account_subtype=data.get('account_subtype', 'bank'),
         balance=float(data['balance']),
     )
     db.session.add(b)
@@ -217,6 +236,7 @@ def api_bank_account(id):
     b.bank_name = data.get('bank_name', b.bank_name)
     b.account_number = data.get('account_number', b.account_number)
     b.account_type = data.get('account_type', b.account_type)
+    b.account_subtype = data.get('account_subtype', b.account_subtype)
     b.balance = float(data.get('balance', b.balance))
     db.session.commit()
     return jsonify(b.to_dict())
@@ -465,6 +485,118 @@ def api_refresh_prices():
         'updated_stocks': updated_stocks,
         'failed': failed,
     })
+
+
+# ─── Expenses ──────────────────────────────────────────────────────────────────
+
+@app.route('/api/expenses', methods=['GET', 'POST'])
+def api_expenses():
+    if request.method == 'GET':
+        return jsonify([e.to_dict() for e in Expense.query.order_by(Expense.date.desc()).all()])
+    data = request.json
+    acct = BankAccount.query.get_or_404(int(data['account_id']))
+    e = Expense(
+        date=data['date'],
+        category=data['category'],
+        description=data.get('description', ''),
+        amount=float(data['amount']),
+        account_id=acct.id,
+        account_name=acct.bank_name,
+    )
+    acct.balance -= e.amount
+    db.session.add(e)
+    db.session.commit()
+    return jsonify(e.to_dict()), 201
+
+
+@app.route('/api/expenses/<int:id>', methods=['PUT', 'DELETE'])
+def api_expense(id):
+    e = Expense.query.get_or_404(id)
+    if request.method == 'DELETE':
+        acct = BankAccount.query.get(e.account_id)
+        if acct:
+            acct.balance += e.amount
+        db.session.delete(e)
+        db.session.commit()
+        return jsonify({'message': 'Deleted'})
+    data = request.json
+    old_acct = BankAccount.query.get(e.account_id)
+    if old_acct:
+        old_acct.balance += e.amount  # reverse old deduction
+    new_acct = BankAccount.query.get_or_404(int(data['account_id']))
+    e.date = data.get('date', e.date)
+    e.category = data.get('category', e.category)
+    e.description = data.get('description', e.description)
+    e.amount = float(data.get('amount', e.amount))
+    e.account_id = new_acct.id
+    e.account_name = new_acct.bank_name
+    new_acct.balance -= e.amount
+    db.session.commit()
+    return jsonify(e.to_dict())
+
+
+# ─── Transfers ─────────────────────────────────────────────────────────────────
+
+@app.route('/api/transfers', methods=['GET', 'POST'])
+def api_transfers():
+    if request.method == 'GET':
+        return jsonify([t.to_dict() for t in Transfer.query.order_by(Transfer.date.desc()).all()])
+    data = request.json
+    from_acct = BankAccount.query.get_or_404(int(data['from_account_id']))
+    to_acct = BankAccount.query.get_or_404(int(data['to_account_id']))
+    amount = float(data['amount'])
+    t = Transfer(
+        date=data['date'],
+        from_account_id=from_acct.id,
+        to_account_id=to_acct.id,
+        from_account_name=from_acct.bank_name,
+        to_account_name=to_acct.bank_name,
+        amount=amount,
+        notes=data.get('notes', ''),
+    )
+    from_acct.balance -= amount
+    to_acct.balance += amount
+    db.session.add(t)
+    db.session.commit()
+    return jsonify(t.to_dict()), 201
+
+
+@app.route('/api/transfers/<int:id>', methods=['PUT', 'DELETE'])
+def api_transfer(id):
+    t = Transfer.query.get_or_404(id)
+    if request.method == 'DELETE':
+        from_acct = BankAccount.query.get(t.from_account_id)
+        to_acct = BankAccount.query.get(t.to_account_id)
+        if from_acct:
+            from_acct.balance += t.amount
+        if to_acct:
+            to_acct.balance -= t.amount
+        db.session.delete(t)
+        db.session.commit()
+        return jsonify({'message': 'Deleted'})
+    data = request.json
+    # Reverse old transfer
+    old_from = BankAccount.query.get(t.from_account_id)
+    old_to = BankAccount.query.get(t.to_account_id)
+    if old_from:
+        old_from.balance += t.amount
+    if old_to:
+        old_to.balance -= t.amount
+    # Apply new transfer
+    new_from = BankAccount.query.get_or_404(int(data['from_account_id']))
+    new_to = BankAccount.query.get_or_404(int(data['to_account_id']))
+    new_amount = float(data.get('amount', t.amount))
+    t.date = data.get('date', t.date)
+    t.from_account_id = new_from.id
+    t.to_account_id = new_to.id
+    t.from_account_name = new_from.bank_name
+    t.to_account_name = new_to.bank_name
+    t.amount = new_amount
+    t.notes = data.get('notes', t.notes)
+    new_from.balance -= new_amount
+    new_to.balance += new_amount
+    db.session.commit()
+    return jsonify(t.to_dict())
 
 
 if __name__ == '__main__':

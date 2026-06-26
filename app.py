@@ -29,6 +29,22 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
+    # Migrate: add account_subtype if missing (existing DBs created before this column)
+    with db.engine.connect() as conn:
+        cols = [r[1] for r in conn.execute(db.text("PRAGMA table_info(bank_accounts)")).fetchall()]
+        if 'account_subtype' not in cols:
+            conn.execute(db.text("ALTER TABLE bank_accounts ADD COLUMN account_subtype VARCHAR(20) DEFAULT 'bank'"))
+            conn.commit()
+        # Migrate: add expenses and transfers tables columns if tables exist but missing cols
+        exp_cols = [r[1] for r in conn.execute(db.text("PRAGMA table_info(expenses)")).fetchall()]
+        if exp_cols and 'account_name' not in exp_cols:
+            conn.execute(db.text("ALTER TABLE expenses ADD COLUMN account_name VARCHAR(100)"))
+            conn.commit()
+        tr_cols = [r[1] for r in conn.execute(db.text("PRAGMA table_info(transfers)")).fetchall()]
+        if tr_cols and 'from_account_name' not in tr_cols:
+            conn.execute(db.text("ALTER TABLE transfers ADD COLUMN from_account_name VARCHAR(100)"))
+            conn.execute(db.text("ALTER TABLE transfers ADD COLUMN to_account_name VARCHAR(100)"))
+            conn.commit()
 
 
 # ─── Page routes ───────────────────────────────────────────────────────────────

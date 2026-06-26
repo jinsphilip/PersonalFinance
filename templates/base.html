@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Personal Finance Tracker{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-icon">₹</span>
+        <span class="brand-name">FinTracker</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}">
+          <span class="nav-icon">&#9783;</span> Dashboard
+        </a>
+        <a href="/bank-accounts" class="nav-item {% if request.path == '/bank-accounts' %}active{% endif %}">
+          <span class="nav-icon">&#127968;</span> Bank Accounts
+        </a>
+        <a href="/mutual-funds" class="nav-item {% if request.path == '/mutual-funds' %}active{% endif %}">
+          <span class="nav-icon">&#128200;</span> Mutual Funds
+        </a>
+        <a href="/stocks" class="nav-item {% if request.path == '/stocks' %}active{% endif %}">
+          <span class="nav-icon">&#128202;</span> Stocks
+        </a>
+        <a href="/fixed-deposits" class="nav-item {% if request.path == '/fixed-deposits' %}active{% endif %}">
+          <span class="nav-icon">&#128181;</span> Fixed Deposits
+        </a>
+        <a href="/chit-funds" class="nav-item {% if request.path == '/chit-funds' %}active{% endif %}">
+          <span class="nav-icon">&#128176;</span> Chit Funds
+        </a>
+        <a href="/loans" class="nav-item {% if request.path == '/loans' %}active{% endif %}">
+          <span class="nav-icon">&#127968;</span> Loans
+        </a>
+        <a href="/credits" class="nav-item {% if request.path == '/credits' %}active{% endif %}">
+          <span class="nav-icon">&#129309;</span> Credits Given
+        </a>
+        <a href="/income" class="nav-item {% if request.path == '/income' %}active{% endif %}">
+          <span class="nav-icon">&#128178;</span> Income
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main-content">
+      <header class="topbar">
+        <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
+        <div class="topbar-right">
+          <span class="date-display" id="currentDate"></span>
+        </div>
+      </header>
+      <div class="content-body">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+
+  <!-- Generic Delete Confirmation Modal -->
+  <div class="modal-overlay" id="deleteModal" style="display:none;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>Confirm Delete</h3>
+        <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete this entry? This action cannot be undone.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+        <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div class="toast" id="toast"></div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-IN', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

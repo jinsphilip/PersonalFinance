@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Credits Given · FinTracker{% endblock %}
+{% block page_title %}Credits Given{% endblock %}
+
+{% block content %}
+<div class="cards-row">
+  <div class="card"><div class="card-label">Outstanding</div><div class="card-value red" id="outstanding">—</div></div>
+  <div class="card"><div class="card-label">Returned</div><div class="card-value green" id="returned">—</div></div>
+  <div class="card"><div class="card-label">Total Lent</div><div class="card-value" id="total">—</div></div>
+  <div class="card"><div class="card-label">People</div><div class="card-value" id="count">—</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Interest-Free Credits</span>
+    <button class="btn btn-primary" onclick="openAdd()">+ Add Credit</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Person</th><th style="text-align:right">Amount</th><th>Date Given</th>
+        <th>Status</th><th>Notes</th><th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="formModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Credit</h3>
+      <button class="modal-close" onclick="closeModal('formModal')">&times;</button>
+    </div>
+    <form id="creditForm" onsubmit="return saveForm(event)">
+      <div class="modal-body">
+        <input type="hidden" name="id" id="creditId">
+        <div class="form-row">
+          <div class="form-group"><label>Person Name</label><input name="person_name" required></div>
+          <div class="form-group"><label>Amount (₹)</label><input name="amount" type="number" step="any" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Date Given</label><input name="date_given" type="date"></div>
+          <div class="form-group"><label>Status</label>
+            <select name="status" id="creditStatus" onchange="toggleReturned()">
+              <option value="outstanding">Outstanding</option><option value="returned">Returned</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row single" id="returnedRow">
+          <div class="form-group"><label>Returned Date</label><input name="returned_date" type="date"></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Notes</label><textarea name="notes"></textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const API = '/api/credits';
+let rows = [];
+
+function toggleReturned() {
+  const returned = document.getElementById('creditStatus').value === 'returned';
+  document.getElementById('returnedRow').style.display = returned ? '' : 'none';
+}
+
+async function load() {
+  rows = await apiGet(API);
+  const out = rows.filter(r => r.status === 'outstanding').reduce((s, r) => s + r.amount, 0);
+  const ret = rows.filter(r => r.status === 'returned').reduce((s, r) => s + r.amount, 0);
+  document.getElementById('outstanding').textContent = fmt(out);
+  document.getElementById('returned').textContent = fmt(ret);
+  document.getElementById('total').textContent = fmt(out + ret);
+  document.getElementById('count').textContent = rows.length;
+
+  const tb = document.getElementById('tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">No credits given yet.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => {
+    const badge = r.status === 'returned'
+      ? '<span class="badge badge-green">Returned</span>'
+      : '<span class="badge badge-orange">Outstanding</span>';
+    return `<tr>
+      <td>${esc(r.person_name)}</td>
+      <td style="text-align:right">${fmt(r.amount)}</td>
+      <td>${fmtDate(r.date_given)}</td>
+      <td>${badge}</td>
+      <td style="max-width:260px;color:#6b7280;font-size:13px">${esc(r.notes) || '—'}</td>
+      <td><div class="actions">
+        <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
+        <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function openAdd() {
+  document.getElementById('creditForm').reset();
+  document.getElementById('creditId').value = '';
+  document.getElementById('modalTitle').textContent = 'Add Credit';
+  toggleReturned();
+  openModal('formModal');
+}
+function openEdit(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('creditForm').reset();
+  fillForm('creditForm', r);
+  document.getElementById('modalTitle').textContent = 'Edit Credit';
+  toggleReturned();
+  openModal('formModal');
+}
+async function saveForm(e) {
+  e.preventDefault();
+  const data = formToObject('creditForm');
+  const id = data.id;
+  try {
+    if (id) await apiSend(`${API}/${id}`, 'PUT', data);
+    else await apiSend(API, 'POST', data);
+    closeModal('formModal'); showToast('Saved'); load();
+  } catch { showToast('Save failed', 'error'); }
+  return false;
+}
+function del(id) {
+  confirmDelete(async () => {
+    try { await apiSend(`${API}/${id}`, 'DELETE'); showToast('Deleted'); load(); }
+    catch { showToast('Delete failed', 'error'); }
+  });
+}
+
+load().catch(() => showToast('Failed to load', 'error'));
+</script>
+{% endblock %}

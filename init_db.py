@@ -10,13 +10,13 @@ with app.app_context():
     mfs = [
         MutualFund(platform='Groww', fund_name='Mirae Asset Large Cap Fund - Direct Growth',
                    folio_number='GRW1234567', units=245.678, avg_nav=82.45, current_nav=96.30,
-                   investment_date='2022-04-15'),
+                   investment_date='2022-04-15', scheme_code='118825'),
         MutualFund(platform='Zerodha Coin', fund_name='Axis Bluechip Fund - Direct Growth',
                    folio_number='ZRD9876543', units=312.450, avg_nav=45.20, current_nav=52.75,
-                   investment_date='2021-11-01'),
+                   investment_date='2021-11-01', scheme_code='120465'),
         MutualFund(platform='Groww', fund_name='HDFC Mid-Cap Opportunities Fund - Direct Growth',
                    folio_number='GRW7654321', units=180.000, avg_nav=110.00, current_nav=138.60,
-                   investment_date='2023-01-10'),
+                   investment_date='2023-01-10', scheme_code='118989'),
     ]
     db.session.add_all(mfs)
 
@@ -24,13 +24,13 @@ with app.app_context():
     stocks = [
         Stock(demat_account='Zerodha', company_name='Tata Consultancy Services Ltd',
               ticker='TCS', quantity=15, avg_price=3350.00, current_price=3892.50,
-              sector='Information Technology'),
+              sector='Information Technology', exchange='NSE'),
         Stock(demat_account='Zerodha', company_name='Infosys Ltd',
               ticker='INFY', quantity=30, avg_price=1420.00, current_price=1678.20,
-              sector='Information Technology'),
+              sector='Information Technology', exchange='NSE'),
         Stock(demat_account='Angel One', company_name='Reliance Industries Ltd',
               ticker='RELIANCE', quantity=20, avg_price=2480.00, current_price=2956.75,
-              sector='Energy & Conglomerates'),
+              sector='Energy & Conglomerates', exchange='NSE'),
     ]
     db.session.add_all(stocks)
 

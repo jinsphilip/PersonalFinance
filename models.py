@@ -14,6 +14,8 @@ class MutualFund(db.Model):
     avg_nav = db.Column(db.Float, nullable=False, default=0)
     current_nav = db.Column(db.Float, nullable=False, default=0)
     investment_date = db.Column(db.String(20))
+    scheme_code = db.Column(db.String(20))      # AMFI scheme code for live NAV
+    last_updated = db.Column(db.String(20))     # date NAV was last refreshed
 
     def to_dict(self):
         invested = self.units * self.avg_nav
@@ -29,6 +31,8 @@ class MutualFund(db.Model):
             'avg_nav': self.avg_nav,
             'current_nav': self.current_nav,
             'investment_date': self.investment_date,
+            'scheme_code': self.scheme_code,
+            'last_updated': self.last_updated,
             'invested_value': round(invested, 2),
             'current_value': round(current, 2),
             'gain_loss': round(gain, 2),
@@ -46,6 +50,8 @@ class Stock(db.Model):
     avg_price = db.Column(db.Float, nullable=False, default=0)
     current_price = db.Column(db.Float, nullable=False, default=0)
     sector = db.Column(db.String(100))
+    exchange = db.Column(db.String(10), default='NSE')   # NSE/BSE for live price
+    last_updated = db.Column(db.String(20))              # date price was last refreshed
 
     def to_dict(self):
         invested = self.quantity * self.avg_price
@@ -61,6 +67,8 @@ class Stock(db.Model):
             'avg_price': self.avg_price,
             'current_price': self.current_price,
             'sector': self.sector,
+            'exchange': self.exchange,
+            'last_updated': self.last_updated,
             'invested_value': round(invested, 2),
             'current_value': round(current, 2),
             'gain_loss': round(gain, 2),

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Stocks · FinTracker{% endblock %}
+{% block page_title %}Stocks{% endblock %}
+
+{% block content %}
+<div class="cards-row">
+  <div class="card"><div class="card-label">Invested</div><div class="card-value" id="sInvested">—</div></div>
+  <div class="card"><div class="card-label">Current Value</div><div class="card-value" id="sCurrent">—</div></div>
+  <div class="card"><div class="card-label">Total Gain/Loss</div><div class="card-value" id="sGain">—</div></div>
+  <div class="card"><div class="card-label">Holdings</div><div class="card-value" id="sCount">—</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Equity Holdings</span>
+    <div class="actions">
+      <button class="btn btn-secondary" id="refreshBtn">↻ Refresh Prices</button>
+      <button class="btn btn-primary" onclick="openAdd()">+ Add Stock</button>
+    </div>
+  </div>
+  <div id="groups"></div>
+</div>
+
+<div class="modal-overlay" id="formModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Stock</h3>
+      <button class="modal-close" onclick="closeModal('formModal')">&times;</button>
+    </div>
+    <form id="stockForm" onsubmit="return saveForm(event)">
+      <div class="modal-body">
+        <input type="hidden" name="id" id="stockId">
+        <div class="form-row">
+          <div class="form-group"><label>Demat Account</label><input name="demat_account" required placeholder="Zerodha / Angel One"></div>
+          <div class="form-group"><label>Sector</label><input name="sector" placeholder="Optional"></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Company Name</label><input name="company_name" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Ticker</label><input name="ticker" required placeholder="TCS"></div>
+          <div class="form-group"><label>Exchange</label>
+            <select name="exchange"><option value="NSE">NSE</option><option value="BSE">BSE</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Quantity</label><input name="quantity" type="number" step="1" required></div>
+          <div class="form-group"><label>Avg Price (₹)</label><input name="avg_price" type="number" step="any" required></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Current Price (₹)</label><input name="current_price" type="number" step="any" required></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const API = '/api/stocks';
+let rows = [];
+
+async function load() {
+  rows = await apiGet(API);
+  let inv = 0, cur = 0;
+  rows.forEach(r => { inv += r.invested_value; cur += r.current_value; });
+  document.getElementById('sInvested').textContent = fmt(inv);
+  document.getElementById('sCurrent').textContent = fmt(cur);
+  const g = document.getElementById('sGain');
+  g.textContent = fmt(cur - inv);
+  g.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
+  document.getElementById('sCount').textContent = rows.length;
+
+  const wrap = document.getElementById('groups');
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; return; }
+
+  const accounts = [...new Set(rows.map(r => r.demat_account))];
+  wrap.innerHTML = accounts.map(acc => {
+    const items = rows.filter(r => r.demat_account === acc);
+    const accVal = items.reduce((s, r) => s + r.current_value, 0);
+    return `
+      <h4 style="margin:18px 0 8px;font-size:14px;color:#1a1a2e">${esc(acc)}
+        <span style="color:#9ca3af;font-weight:500"> · ${fmt(accVal)}</span></h4>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>Company</th><th>Ticker</th><th style="text-align:right">Qty</th>
+          <th style="text-align:right">Avg</th><th style="text-align:right">LTP</th>
+          <th style="text-align:right">Invested</th><th style="text-align:right">Current</th>
+          <th style="text-align:right">Gain/Loss</th><th></th>
+        </tr></thead>
+        <tbody>${items.map(r => `
+          <tr>
+            <td>${esc(r.company_name)}</td>
+            <td>${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span></td>
+            <td style="text-align:right">${r.quantity}</td>
+            <td style="text-align:right">${fmtNum(r.avg_price)}</td>
+            <td style="text-align:right">${fmtNum(r.current_price)}</td>
+            <td style="text-align:right">${fmt(r.invested_value)}</td>
+            <td style="text-align:right">${fmt(r.current_value)}</td>
+            <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
+            <td><div class="actions">
+              <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
+              <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
+            </div></td>
+          </tr>`).join('')}</tbody>
+      </table></div>`;
+  }).join('');
+}
+
+function openAdd() {
+  document.getElementById('stockForm').reset();
+  document.getElementById('stockId').value = '';
+  document.getElementById('modalTitle').textContent = 'Add Stock';
+  openModal('formModal');
+}
+function openEdit(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('stockForm').reset();
+  fillForm('stockForm', r);
+  document.getElementById('modalTitle').textContent = 'Edit Stock';
+  openModal('formModal');
+}
+async function saveForm(e) {
+  e.preventDefault();
+  const data = formToObject('stockForm');
+  const id = data.id;
+  try {
+    if (id) await apiSend(`${API}/${id}`, 'PUT', data);
+    else await apiSend(API, 'POST', data);
+    closeModal('formModal'); showToast('Saved'); load();
+  } catch { showToast('Save failed', 'error'); }
+  return false;
+}
+function del(id) {
+  confirmDelete(async () => {
+    try { await apiSend(`${API}/${id}`, 'DELETE'); showToast('Deleted'); load(); }
+    catch { showToast('Delete failed', 'error'); }
+  });
+}
+
+document.getElementById('refreshBtn').onclick = async () => {
+  showToast('Fetching latest prices…');
+  try {
+    const r = await apiSend('/api/refresh-prices', 'POST');
+    showToast(`Updated ${r.updated_stocks} stock(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
+    load();
+  } catch { showToast('Refresh failed', 'error'); }
+};
+
+load().catch(() => showToast('Failed to load', 'error'));
+</script>
+{% endblock %}

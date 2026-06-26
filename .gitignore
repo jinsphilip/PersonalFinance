@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+env/
+
+# Database (local data — do not commit)
+finance.db
+*.sqlite3
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,5 +1,8 @@
+from datetime import date
+
 from flask import Flask, request, jsonify, render_template
 from models import db, MutualFund, Stock, BankAccount, Loan, ChitFund, FixedDeposit, CreditGiven, Income
+import prices
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///finance.db'
@@ -96,6 +99,8 @@ def api_mutual_funds():
         avg_nav=float(data['avg_nav']),
         current_nav=float(data['current_nav']),
         investment_date=data.get('investment_date', ''),
+        scheme_code=data.get('scheme_code', ''),
+        last_updated=data.get('last_updated', ''),
     )
     db.session.add(mf)
     db.session.commit()
@@ -117,6 +122,7 @@ def api_mutual_fund(id):
     mf.avg_nav = float(data.get('avg_nav', mf.avg_nav))
     mf.current_nav = float(data.get('current_nav', mf.current_nav))
     mf.investment_date = data.get('investment_date', mf.investment_date)
+    mf.scheme_code = data.get('scheme_code', mf.scheme_code)
     db.session.commit()
     return jsonify(mf.to_dict())
 
@@ -136,6 +142,8 @@ def api_stocks():
         avg_price=float(data['avg_price']),
         current_price=float(data['current_price']),
         sector=data.get('sector', ''),
+        exchange=data.get('exchange', 'NSE'),
+        last_updated=data.get('last_updated', ''),
     )
     db.session.add(s)
     db.session.commit()
@@ -157,6 +165,7 @@ def api_stock(id):
     s.avg_price = float(data.get('avg_price', s.avg_price))
     s.current_price = float(data.get('current_price', s.current_price))
     s.sector = data.get('sector', s.sector)
+    s.exchange = data.get('exchange', s.exchange)
     db.session.commit()
     return jsonify(s.to_dict())
 
@@ -389,6 +398,55 @@ def api_income_entry(id):
     db.session.delete(i)
     db.session.commit()
     return jsonify({'message': 'Deleted'})
+
+
+# ─── Live Price Refresh ────────────────────────────────────────────────────────
+
+@app.route('/api/refresh-prices', methods=['POST'])
+def api_refresh_prices():
+    """Refresh mutual fund NAVs (AMFI) and stock prices (Yahoo Finance).
+
+    Rows without a scheme_code (MF) are skipped. Any symbol that cannot be
+    fetched is left at its stored value and reported in `failed`.
+    """
+    today = date.today().isoformat()
+    updated_mf = 0
+    updated_stocks = 0
+    failed = []
+
+    # Mutual funds — one AMFI download covers every fund.
+    funds = [f for f in MutualFund.query.all() if f.scheme_code]
+    if funds:
+        try:
+            nav_map = prices.fetch_amfi_navs()
+        except Exception:
+            nav_map = {}
+            failed.append('AMFI NAV feed unreachable')
+        for f in funds:
+            nav = nav_map.get(str(f.scheme_code).strip())
+            if nav is not None:
+                f.current_nav = nav
+                f.last_updated = today
+                updated_mf += 1
+            else:
+                failed.append(f'{f.fund_name} (scheme {f.scheme_code})')
+
+    # Stocks — one request per ticker.
+    for s in Stock.query.all():
+        price = prices.fetch_stock_price(s.ticker, s.exchange)
+        if price is not None:
+            s.current_price = price
+            s.last_updated = today
+            updated_stocks += 1
+        else:
+            failed.append(f'{s.ticker} ({s.exchange})')
+
+    db.session.commit()
+    return jsonify({
+        'updated_mf': updated_mf,
+        'updated_stocks': updated_stocks,
+        'failed': failed,
+    })
 
 
 if __name__ == '__main__':

@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Chit Funds · FinTracker{% endblock %}
+{% block page_title %}Chit Funds{% endblock %}
+
+{% block content %}
+<div class="cards-row">
+  <div class="card"><div class="card-label">Total Chit Value</div><div class="card-value" id="totalValue">—</div></div>
+  <div class="card"><div class="card-label">Monthly Outflow</div><div class="card-value" id="monthly">—</div></div>
+  <div class="card"><div class="card-label">Auctioned</div><div class="card-value green" id="auctioned">—</div></div>
+  <div class="card"><div class="card-label">Active Chits</div><div class="card-value" id="count">—</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Chit Funds</span>
+    <button class="btn btn-primary" onclick="openAdd()">+ Add Chit</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Chit Name</th><th>Organizer</th><th style="text-align:right">Total Value</th>
+        <th style="text-align:right">Monthly</th><th style="text-align:right">Tenure</th>
+        <th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="formModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Chit</h3>
+      <button class="modal-close" onclick="closeModal('formModal')">&times;</button>
+    </div>
+    <form id="chitForm" onsubmit="return saveForm(event)">
+      <div class="modal-body">
+        <input type="hidden" name="id" id="chitId">
+        <div class="form-row">
+          <div class="form-group"><label>Chit Name</label><input name="chit_name" required></div>
+          <div class="form-group"><label>Organizer</label><input name="organizer"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Total Value (₹)</label><input name="total_value" type="number" step="any" required></div>
+          <div class="form-group"><label>Monthly Contribution (₹)</label><input name="monthly_contribution" type="number" step="any" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Tenure (months)</label><input name="tenure_months" type="number" step="1" required></div>
+          <div class="form-group"><label>Start Date</label><input name="start_date" type="date"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Auction Status</label>
+            <select name="auction_status" id="auctionStatus" onchange="toggleAuction()">
+              <option value="pending">Pending</option><option value="auctioned">Auctioned</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Auction Amount (₹)</label><input name="auction_amount" type="number" step="any" id="auctionAmount"></div>
+        </div>
+        <div class="form-row single" id="auctionDateRow">
+          <div class="form-group"><label>Auction Date</label><input name="auction_date" type="date"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const API = '/api/chit-funds';
+let rows = [];
+
+function toggleAuction() {
+  const auctioned = document.getElementById('auctionStatus').value === 'auctioned';
+  document.getElementById('auctionAmount').disabled = !auctioned;
+  document.getElementById('auctionDateRow').style.display = auctioned ? '' : 'none';
+}
+
+async function load() {
+  rows = await apiGet(API);
+  document.getElementById('totalValue').textContent = fmt(rows.reduce((s, r) => s + r.total_value, 0));
+  document.getElementById('monthly').textContent = fmt(rows.reduce((s, r) => s + r.monthly_contribution, 0));
+  document.getElementById('auctioned').textContent = fmt(
+    rows.filter(r => r.auction_status === 'auctioned').reduce((s, r) => s + r.auction_amount, 0));
+  document.getElementById('count').textContent = rows.length;
+
+  const tb = document.getElementById('tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">No chit funds yet.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => {
+    const status = r.auction_status === 'auctioned'
+      ? `<span class="badge badge-green">Auctioned</span> <span style="color:#6b7280;font-size:12px">${fmt(r.auction_amount)} · ${fmtDate(r.auction_date)}</span>`
+      : `<span class="badge badge-orange">Pending</span>`;
+    return `<tr>
+      <td>${esc(r.chit_name)}</td>
+      <td>${esc(r.organizer) || '—'}</td>
+      <td style="text-align:right">${fmt(r.total_value)}</td>
+      <td style="text-align:right">${fmt(r.monthly_contribution)}</td>
+      <td style="text-align:right">${r.tenure_months} mo</td>
+      <td>${status}</td>
+      <td><div class="actions">
+        <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
+        <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function openAdd() {
+  document.getElementById('chitForm').reset();
+  document.getElementById('chitId').value = '';
+  document.getElementById('modalTitle').textContent = 'Add Chit';
+  toggleAuction();
+  openModal('formModal');
+}
+function openEdit(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('chitForm').reset();
+  fillForm('chitForm', r);
+  document.getElementById('modalTitle').textContent = 'Edit Chit';
+  toggleAuction();
+  openModal('formModal');
+}
+async function saveForm(e) {
+  e.preventDefault();
+  const data = formToObject('chitForm');
+  const id = data.id;
+  try {
+    if (id) await apiSend(`${API}/${id}`, 'PUT', data);
+    else await apiSend(API, 'POST', data);
+    closeModal('formModal'); showToast('Saved'); load();
+  } catch { showToast('Save failed', 'error'); }
+  return false;
+}
+function del(id) {
+  confirmDelete(async () => {
+    try { await apiSend(`${API}/${id}`, 'DELETE'); showToast('Deleted'); load(); }
+    catch { showToast('Delete failed', 'error'); }
+  });
+}
+
+load().catch(() => showToast('Failed to load', 'error'));
+</script>
+{% endblock %}

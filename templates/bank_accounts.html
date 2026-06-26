@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Bank Accounts · FinTracker{% endblock %}
+{% block page_title %}Bank Accounts{% endblock %}
+
+{% block content %}
+<div class="cards-row">
+  <div class="card"><div class="card-label">Total Balance</div><div class="card-value green" id="total">—</div></div>
+  <div class="card"><div class="card-label">Accounts</div><div class="card-value" id="count">—</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Accounts</span>
+    <button class="btn btn-primary" onclick="openAdd()">+ Add Account</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Bank</th><th>Account Number</th><th>Type</th>
+        <th style="text-align:right">Balance</th><th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="formModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Account</h3>
+      <button class="modal-close" onclick="closeModal('formModal')">&times;</button>
+    </div>
+    <form id="bankForm" onsubmit="return saveForm(event)">
+      <div class="modal-body">
+        <input type="hidden" name="id" id="bankId">
+        <div class="form-row single">
+          <div class="form-group"><label>Bank Name</label><input name="bank_name" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Account Number</label><input name="account_number" placeholder="XXXX XXXX 1234"></div>
+          <div class="form-group"><label>Account Type</label>
+            <select name="account_type">
+              <option>Savings</option><option>Current</option><option>Salary</option><option>NRE</option><option>NRO</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Balance (₹)</label><input name="balance" type="number" step="any" required></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const API = '/api/bank-accounts';
+let rows = [];
+
+async function load() {
+  rows = await apiGet(API);
+  document.getElementById('total').textContent = fmt(rows.reduce((s, r) => s + r.balance, 0));
+  document.getElementById('count').textContent = rows.length;
+  const tb = document.getElementById('tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No bank accounts yet.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => `
+    <tr>
+      <td>${esc(r.bank_name)}</td>
+      <td>${esc(r.account_number) || '—'}</td>
+      <td><span class="badge badge-blue">${esc(r.account_type)}</span></td>
+      <td style="text-align:right" class="gain">${fmt(r.balance)}</td>
+      <td><div class="actions">
+        <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
+        <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+function openAdd() {
+  document.getElementById('bankForm').reset();
+  document.getElementById('bankId').value = '';
+  document.getElementById('modalTitle').textContent = 'Add Account';
+  openModal('formModal');
+}
+function openEdit(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('bankForm').reset();
+  fillForm('bankForm', r);
+  document.getElementById('modalTitle').textContent = 'Edit Account';
+  openModal('formModal');
+}
+async function saveForm(e) {
+  e.preventDefault();
+  const data = formToObject('bankForm');
+  const id = data.id;
+  try {
+    if (id) await apiSend(`${API}/${id}`, 'PUT', data);
+    else await apiSend(API, 'POST', data);
+    closeModal('formModal'); showToast('Saved'); load();
+  } catch { showToast('Save failed', 'error'); }
+  return false;
+}
+function del(id) {
+  confirmDelete(async () => {
+    try { await apiSend(`${API}/${id}`, 'DELETE'); showToast('Deleted'); load(); }
+    catch { showToast('Delete failed', 'error'); }
+  });
+}
+
+load().catch(() => showToast('Failed to load', 'error'));
+</script>
+{% endblock %}

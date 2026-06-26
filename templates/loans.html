@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Loans · FinTracker{% endblock %}
+{% block page_title %}Loans{% endblock %}
+
+{% block content %}
+<div class="cards-row">
+  <div class="card"><div class="card-label">Total Outstanding</div><div class="card-value red" id="outstanding">—</div></div>
+  <div class="card"><div class="card-label">Total Borrowed</div><div class="card-value" id="principal">—</div></div>
+  <div class="card"><div class="card-label">Monthly EMI</div><div class="card-value" id="emi">—</div></div>
+  <div class="card"><div class="card-label">Active Loans</div><div class="card-value" id="count">—</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Loans</span>
+    <button class="btn btn-primary" onclick="openAdd()">+ Add Loan</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Type</th><th>Lender</th><th style="text-align:right">Outstanding</th>
+        <th style="text-align:right">EMI</th><th style="text-align:right">Rate</th>
+        <th>Next Due</th><th>Payoff</th><th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="formModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Loan</h3>
+      <button class="modal-close" onclick="closeModal('formModal')">&times;</button>
+    </div>
+    <form id="loanForm" onsubmit="return saveForm(event)">
+      <div class="modal-body">
+        <input type="hidden" name="id" id="loanId">
+        <div class="form-row">
+          <div class="form-group"><label>Loan Type</label>
+            <select name="loan_type"><option value="housing">Housing</option><option value="car">Car</option><option value="personal">Personal</option><option value="education">Education</option></select>
+          </div>
+          <div class="form-group"><label>Lender</label><input name="lender" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Principal (₹)</label><input name="principal_amount" type="number" step="any" required></div>
+          <div class="form-group"><label>Outstanding (₹)</label><input name="outstanding_amount" type="number" step="any" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Interest Rate (%)</label><input name="interest_rate" type="number" step="any" required></div>
+          <div class="form-group"><label>EMI (₹)</label><input name="emi_amount" type="number" step="any" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Tenure (months)</label><input name="tenure_months" type="number" step="1" required></div>
+          <div class="form-group"><label>Start Date</label><input name="start_date" type="date"></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Next Due Date</label><input name="next_due_date" type="date"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const API = '/api/loans';
+let rows = [];
+
+async function load() {
+  rows = await apiGet(API);
+  document.getElementById('outstanding').textContent = fmt(rows.reduce((s, r) => s + r.outstanding_amount, 0));
+  document.getElementById('principal').textContent = fmt(rows.reduce((s, r) => s + r.principal_amount, 0));
+  document.getElementById('emi').textContent = fmt(rows.reduce((s, r) => s + r.emi_amount, 0));
+  document.getElementById('count').textContent = rows.length;
+
+  const tb = document.getElementById('tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">No loans yet.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => `
+    <tr>
+      <td><span class="badge badge-orange">${esc(r.loan_type)}</span></td>
+      <td>${esc(r.lender)}</td>
+      <td style="text-align:right" class="loss">${fmt(r.outstanding_amount)}</td>
+      <td style="text-align:right">${fmt(r.emi_amount)}</td>
+      <td style="text-align:right">${fmtNum(r.interest_rate)}%</td>
+      <td>${fmtDate(r.next_due_date)}</td>
+      <td>
+        <div class="loan-progress-wrap">
+          <div class="loan-progress-bar"><div class="loan-progress-fill" style="width:${r.progress_pct}%;background:#4CAF50"></div></div>
+          <div class="loan-progress-label">${fmtNum(r.progress_pct)}% paid</div>
+        </div>
+      </td>
+      <td><div class="actions">
+        <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
+        <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+function openAdd() {
+  document.getElementById('loanForm').reset();
+  document.getElementById('loanId').value = '';
+  document.getElementById('modalTitle').textContent = 'Add Loan';
+  openModal('formModal');
+}
+function openEdit(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('loanForm').reset();
+  fillForm('loanForm', r);
+  document.getElementById('modalTitle').textContent = 'Edit Loan';
+  openModal('formModal');
+}
+async function saveForm(e) {
+  e.preventDefault();
+  const data = formToObject('loanForm');
+  const id = data.id;
+  try {
+    if (id) await apiSend(`${API}/${id}`, 'PUT', data);
+    else await apiSend(API, 'POST', data);
+    closeModal('formModal'); showToast('Saved'); load();
+  } catch { showToast('Save failed', 'error'); }
+  return false;
+}
+function del(id) {
+  confirmDelete(async () => {
+    try { await apiSend(`${API}/${id}`, 'DELETE'); showToast('Deleted'); load(); }
+    catch { showToast('Delete failed', 'error'); }
+  });
+}
+
+load().catch(() => showToast('Failed to load', 'error'));
+</script>
+{% endblock %}

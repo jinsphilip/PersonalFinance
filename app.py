@@ -47,6 +47,33 @@ _LEGACY_EXPENSE_MAP = {
 }
 
 
+def ensure_legacy_columns():
+    """Add columns introduced after a table first shipped.
+
+    db.create_all() creates missing tables but never alters existing ones, so a
+    pre-existing finance.db keeps its old `credits` / `chit_funds` schema. The
+    ORM then selects columns (account_id, …) that aren't there yet and crashes.
+    Patch them in with raw SQL — guarded by PRAGMA — before any ORM query runs.
+    """
+    patches = {
+        'credits': [('account_id', 'INTEGER')],
+        'chit_funds': [('account_id', 'INTEGER')],
+        'bank_accounts': [('account_subtype', "VARCHAR(20) DEFAULT 'bank'")],
+        'expenses': [('account_name', 'VARCHAR(100)')],
+        'transfers': [('from_account_name', 'VARCHAR(100)'),
+                      ('to_account_name', 'VARCHAR(100)')],
+    }
+    with db.engine.connect() as conn:
+        for table, cols in patches.items():
+            existing = [r[1] for r in conn.execute(db.text(f"PRAGMA table_info({table})")).fetchall()]
+            if not existing:
+                continue  # table doesn't exist on this DB — create_all handles it
+            for name, decl in cols:
+                if name not in existing:
+                    conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN {name} {decl}"))
+        conn.commit()
+
+
 def migrate_legacy_if_needed():
     """One-time move of pre-ledger cash data into accounts + transactions.
 
@@ -64,7 +91,8 @@ def migrate_legacy_if_needed():
     # Banks / wallets → accounts, keeping an old-id → new-account map.
     id_map = {}
     for b in BankAccount.query.all():
-        subtype = 'wallet' if (b.account_subtype or 'bank') == 'wallet' else 'bank'
+        is_wallet = (b.account_subtype or '').lower() == 'wallet' or (b.account_type or '').lower() == 'wallet'
+        subtype = 'wallet' if is_wallet else 'bank'
         acct = Account(
             name=b.bank_name,
             account_type_code='WALLET' if subtype == 'wallet' else 'BANK',
@@ -129,6 +157,7 @@ def migrate_legacy_if_needed():
 
 with app.app_context():
     db.create_all()
+    ensure_legacy_columns()   # patch new columns onto pre-existing tables first
     services.seed_masters()
     migrate_legacy_if_needed()
 

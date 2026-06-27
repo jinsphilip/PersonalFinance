@@ -100,6 +100,16 @@ async function apiSend(url, method, body) {
   return res.json();
 }
 
+// Multipart upload (e.g. PDF statement). `fields` adds extra form fields.
+async function apiUpload(url, file, fields = {}) {
+  const fd = new FormData();
+  fd.append('file', file);
+  Object.entries(fields).forEach(([k, v]) => { if (v != null) fd.append(k, v); });
+  const res = await fetch(url, { method: 'POST', body: fd });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // Collects a form's named fields into a plain object.
 function formToObject(formId) {
   const form = document.getElementById(formId);

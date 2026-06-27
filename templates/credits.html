@@ -18,14 +18,15 @@
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th>Person</th><th style="text-align:right">Amount</th><th>Date Given</th>
-        <th>Status</th><th>Notes</th><th></th>
+        <th>Person</th><th style="text-align:right">Lent</th><th style="text-align:right">Outstanding</th>
+        <th>Date Given</th><th>Status</th><th>Notes</th><th></th>
       </tr></thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
 </div>
 
+<!-- Add/Edit Modal -->
 <div class="modal-overlay" id="formModal" style="display:none;">
   <div class="modal">
     <div class="modal-header">
@@ -41,14 +42,9 @@
         </div>
         <div class="form-row">
           <div class="form-group"><label>Date Given</label><input name="date_given" type="date"></div>
-          <div class="form-group"><label>Status</label>
-            <select name="status" id="creditStatus" onchange="toggleReturned()">
-              <option value="outstanding">Outstanding</option><option value="returned">Returned</option>
-            </select>
+          <div class="form-group" id="fromGroup"><label>Funded From Account</label>
+            <select name="from_account_id" id="fromSel"></select>
           </div>
-        </div>
-        <div class="form-row single" id="returnedRow">
-          <div class="form-group"><label>Returned Date</label><input name="returned_date" type="date"></div>
         </div>
         <div class="form-row single">
           <div class="form-group"><label>Notes</label><textarea name="notes"></textarea></div>
@@ -61,40 +57,67 @@
     </form>
   </div>
 </div>
+
+<!-- Recovery Modal -->
+<div class="modal-overlay" id="recoverModal" style="display:none;">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>Record Recovery</h3>
+      <button class="modal-close" onclick="closeModal('recoverModal')">&times;</button>
+    </div>
+    <form id="recoverForm" onsubmit="return saveRecover(event)">
+      <div class="modal-body">
+        <input type="hidden" id="recoverCreditId">
+        <p style="font-size:13px;color:#6b7280;margin-bottom:14px;">Money received back is credited to a bank account; the receivable scales down to zero.</p>
+        <div class="form-row single">
+          <div class="form-group"><label>Credit To Account</label><select id="recoverTo"></select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Amount (₹)</label><input id="recoverAmt" type="number" step="any" min="0.01" required></div>
+          <div class="form-group"><label>Date</label><input id="recoverDate" type="date" required></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('recoverModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Record</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const API = '/api/credits';
-let rows = [];
-
-function toggleReturned() {
-  const returned = document.getElementById('creditStatus').value === 'returned';
-  document.getElementById('returnedRow').style.display = returned ? '' : 'none';
-}
+let rows = [], bankAccounts = [];
 
 async function load() {
-  rows = await apiGet(API);
-  const out = rows.filter(r => r.status === 'outstanding').reduce((s, r) => s + r.amount, 0);
-  const ret = rows.filter(r => r.status === 'returned').reduce((s, r) => s + r.amount, 0);
+  [rows, bankAccounts] = await Promise.all([apiGet(API), apiGet('/api/accounts')]);
+  bankAccounts = bankAccounts.filter(a => ['BANK','WALLET'].includes(a.account_type_code));
+
+  const out = rows.reduce((s, r) => s + (r.outstanding || 0), 0);
+  const ret = rows.reduce((s, r) => s + Math.max(0, r.amount - (r.outstanding || 0)), 0);
   document.getElementById('outstanding').textContent = fmt(out);
   document.getElementById('returned').textContent = fmt(ret);
-  document.getElementById('total').textContent = fmt(out + ret);
+  document.getElementById('total').textContent = fmt(rows.reduce((s, r) => s + r.amount, 0));
   document.getElementById('count').textContent = rows.length;
 
   const tb = document.getElementById('tbody');
-  if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">No credits given yet.</td></tr>'; return; }
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">No credits given yet.</td></tr>'; return; }
   tb.innerHTML = rows.map(r => {
-    const badge = r.status === 'returned'
+    const settled = (r.outstanding || 0) <= 0;
+    const badge = settled
       ? '<span class="badge badge-green">Returned</span>'
       : '<span class="badge badge-orange">Outstanding</span>';
     return `<tr>
       <td>${esc(r.person_name)}</td>
       <td style="text-align:right">${fmt(r.amount)}</td>
+      <td style="text-align:right" class="${settled?'gain':'loss'}">${fmt(r.outstanding || 0)}</td>
       <td>${fmtDate(r.date_given)}</td>
       <td>${badge}</td>
-      <td style="max-width:260px;color:#6b7280;font-size:13px">${esc(r.notes) || '—'}</td>
+      <td style="max-width:240px;color:#6b7280;font-size:13px">${esc(r.notes) || '—'}</td>
       <td><div class="actions">
+        ${settled ? '' : `<button class="btn-icon" title="Record recovery" onclick='openRecover(${r.id})'>&#8617;</button>`}
         <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
         <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
       </div></td>
@@ -106,7 +129,10 @@ function openAdd() {
   document.getElementById('creditForm').reset();
   document.getElementById('creditId').value = '';
   document.getElementById('modalTitle').textContent = 'Add Credit';
-  toggleReturned();
+  document.getElementById('fromGroup').style.display = 'flex';
+  document.getElementById('fromSel').innerHTML =
+    '<option value="">— none (track only) —</option>' +
+    bankAccounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
   openModal('formModal');
 }
 function openEdit(id) {
@@ -114,7 +140,9 @@ function openEdit(id) {
   document.getElementById('creditForm').reset();
   fillForm('creditForm', r);
   document.getElementById('modalTitle').textContent = 'Edit Credit';
-  toggleReturned();
+  // Amount and funding account are fixed after creation (ledger-backed).
+  document.getElementById('fromGroup').style.display = 'none';
+  document.querySelector('#creditForm [name="amount"]').readOnly = true;
   openModal('formModal');
 }
 async function saveForm(e) {
@@ -124,7 +152,9 @@ async function saveForm(e) {
   try {
     if (id) await apiSend(`${API}/${id}`, 'PUT', data);
     else await apiSend(API, 'POST', data);
-    closeModal('formModal'); showToast('Saved'); load();
+    closeModal('formModal');
+    document.querySelector('#creditForm [name="amount"]').readOnly = false;
+    showToast('Saved'); load();
   } catch { showToast('Save failed', 'error'); }
   return false;
 }
@@ -133,6 +163,30 @@ function del(id) {
     try { await apiSend(`${API}/${id}`, 'DELETE'); showToast('Deleted'); load(); }
     catch { showToast('Delete failed', 'error'); }
   });
+}
+
+function openRecover(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('recoverCreditId').value = id;
+  document.getElementById('recoverTo').innerHTML =
+    bankAccounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+  document.getElementById('recoverAmt').value = r.outstanding || '';
+  document.getElementById('recoverDate').value = new Date().toISOString().slice(0,10);
+  openModal('recoverModal');
+}
+async function saveRecover(e) {
+  e.preventDefault();
+  const id = document.getElementById('recoverCreditId').value;
+  const body = {
+    to_account_id: document.getElementById('recoverTo').value,
+    amount: document.getElementById('recoverAmt').value,
+    date: document.getElementById('recoverDate').value,
+  };
+  try {
+    await apiSend(`${API}/${id}/recover`, 'POST', body);
+    closeModal('recoverModal'); showToast('Recovery recorded'); load();
+  } catch { showToast('Recovery failed', 'error'); }
+  return false;
 }
 
 load().catch(() => showToast('Failed to load', 'error'));

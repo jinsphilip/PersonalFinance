@@ -13,11 +13,40 @@ individual/local use (no authentication) with amounts in INR.
 | 1 | **Dashboard** | Net worth, asset allocation, assets vs liabilities, recent income |
 | 2 | **Mutual Funds** | Holdings across platforms (Groww, Zerodha Coin, …) with live NAV |
 | 3 | **Stocks** | Equity across multiple demat accounts with live prices |
-| 4 | **Bank Accounts** | Multiple accounts and balances |
-| 5 | **Loans** | Housing / car / personal loans with EMI and payoff progress |
-| 6 | **Chit Funds** | Contributions and auction status (pending / auctioned) |
-| 7 | **Fixed Deposits** | Principal, rate, maturity value, interest earned |
-| 8 | **Credits Given** | Interest-free money lent to friends, with repayment status |
+| 4 | **Accounts** | Unified ledger accounts: bank, wallet, chit, loan-given, with live balances |
+| 5 | **Transactions** | Double-entry-inspired ledger (inflow / outflow / transfer) — expenses, income, transfers |
+| 6 | **Statement Import** | Upload a PDF bank/dividend statement; parsed rows enter a review queue before posting |
+| 7 | **Loans** | Housing / car / personal loans with EMI and payoff progress |
+| 8 | **Chit Funds** | Contributions and auction status; auction flips the chit from asset to liability |
+| 9 | **Fixed Deposits** | Principal, rate, maturity value, interest earned |
+| 10 | **Credits Given** | Interest-free money lent to friends, tracked as receivable accounts that scale to zero on recovery |
+
+## Ledger Engine
+
+The cash layer follows a **double-entry-inspired ledger** (adapted from the Personal
+Wealth & Ledger Engine spec):
+
+- **`accounts`** — every capital silo is a uniform account with a `current_balance`
+  (`Numeric(15,2)`), an `account_type_code` (BANK / WALLET / CHIT / LOAN_ASSET /
+  EXTERNAL) and an `is_liability` flag. Investment holdings (MF, stocks, FD) and formal
+  loans remain separate valuation tables that feed net worth but are not ledger accounts.
+- **`transactions`** — each row has `from_account_id` and/or `to_account_id`, a positive
+  `amount`, and a `category_code`. The category's `direction` (INFLOW / OUTFLOW /
+  TRANSFER) decides which side(s) move; a missing external side auto-fills an EXTERNAL
+  counter-party. All balance mutations go through `services.post_transaction` /
+  `reverse_transaction` in a single DB transaction for atomicity.
+- **Master tables** — `account_types_master` and `transaction_categories_master` hold
+  reference data, seeded idempotently at startup (`services.seed_masters`).
+- **Chit dual-state** — pre-auction installments grow the CHIT account (asset). The
+  auction event posts CHIT_AUCTION (chit → bank) and sets `is_liability = True`.
+- **Friendly-loan asset book** — lending opens a LOAN_ASSET receivable (`LOAN_GIVEN`);
+  recovery posts `LOAN_RECOVERED` and closes it at zero.
+- **Statement ingestion** — `ingestion.parse_statement` uses pdfplumber + a regex
+  matching engine to turn PDF rows into `staged_transactions`; nothing posts to the
+  ledger until the user approves a batch in the review UI.
+
+A one-time startup migration moves any pre-ledger bank/expense/transfer/income/credit
+data into accounts + transactions without loss.
 | 9 | **Income** | Salary and stock dividend income |
 
 ## Tech Stack

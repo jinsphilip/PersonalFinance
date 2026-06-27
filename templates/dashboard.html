@@ -87,12 +87,11 @@ async function loadDashboard() {
     body.innerHTML = '<tr><td colspan="4" class="empty">No income recorded yet</td></tr>';
   } else {
     body.innerHTML = d.recent_income.map(i => {
-      const badge = i.income_type === 'salary' ? 'badge-blue' : 'badge-green';
-      const source = i.income_type === 'salary' ? esc(i.employer) : esc(i.stock_name);
+      const badge = i.category_code === 'SALARY' ? 'badge-blue' : 'badge-green';
       return `<tr>
-        <td><span class="badge ${badge}">${esc(i.income_type)}</span></td>
-        <td>${source || '—'}</td>
-        <td>${fmtDate(i.date)}</td>
+        <td><span class="badge ${badge}">${esc(i.category_name)}</span></td>
+        <td>${esc(i.description) || esc(i.to_account_name) || '—'}</td>
+        <td>${fmtDate(i.transaction_date)}</td>
         <td style="text-align:right" class="gain">${fmt(i.amount)}</td>
       </tr>`;
     }).join('');

@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Accounts · FinTracker{% endblock %}
+{% block page_title %}Accounts{% endblock %}
+
+{% block content %}
+<div class="cards-row">
+  <div class="card"><div class="card-label">Cash &amp; Wallets</div><div class="card-value green" id="cashTotal">—</div></div>
+  <div class="card"><div class="card-label">Loans Given (receivable)</div><div class="card-value" id="loanTotal">—</div></div>
+  <div class="card"><div class="card-label">Accounts</div><div class="card-value" id="count">—</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Ledger Accounts</span>
+    <button class="btn btn-primary" onclick="openAdd()">+ Add Account</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Name</th><th>Type</th><th>Reference</th>
+        <th style="text-align:right">Balance</th><th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="formModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Account</h3>
+      <button class="modal-close" onclick="closeModal('formModal')">&times;</button>
+    </div>
+    <form id="acctForm" onsubmit="return saveForm(event)">
+      <div class="modal-body">
+        <input type="hidden" name="id" id="acctId">
+        <div class="form-row single">
+          <div class="form-group"><label>Account Name</label><input name="name" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Type</label>
+            <select name="subtype" id="subtypeSel">
+              <option value="bank">Bank</option>
+              <option value="wallet">Wallet</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Balance (₹)</label><input name="current_balance" type="number" step="any" required></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Reference / Account No.</label><input name="meta" placeholder="XXXX XXXX 1234"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const API = '/api/accounts';
+let rows = [];
+
+const TYPE_BADGE = {
+  BANK: 'badge-blue', WALLET: 'badge-green', CHIT: 'badge-orange',
+  LOAN_ASSET: 'badge-gray', EXTERNAL: 'badge-gray',
+};
+
+async function load() {
+  rows = await apiGet(API);
+  const cash = rows.filter(r => ['BANK','WALLET'].includes(r.account_type_code))
+                   .reduce((s,r) => s + r.current_balance, 0);
+  const loans = rows.filter(r => r.account_type_code === 'LOAN_ASSET')
+                    .reduce((s,r) => s + r.current_balance, 0);
+  document.getElementById('cashTotal').textContent = fmt(cash);
+  document.getElementById('loanTotal').textContent = fmt(loans);
+  document.getElementById('count').textContent = rows.length;
+
+  const tb = document.getElementById('tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No accounts yet.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => {
+    const liab = r.is_liability ? ' <span class="badge badge-red">liability</span>' : '';
+    // CHIT and LOAN_ASSET accounts are managed from their own pages.
+    const editable = ['BANK','WALLET'].includes(r.account_type_code);
+    const actions = editable ? `
+      <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
+      <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>` :
+      `<span style="color:#9ca3af;font-size:12px">auto</span>`;
+    return `<tr>
+      <td>${esc(r.name)}${liab}</td>
+      <td><span class="badge ${TYPE_BADGE[r.account_type_code]||'badge-gray'}">${esc(r.account_type_name)}</span></td>
+      <td>${esc(r.meta) || '—'}</td>
+      <td style="text-align:right" class="${r.is_liability?'loss':'gain'}">${fmt(r.current_balance)}</td>
+      <td><div class="actions">${actions}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function openAdd() {
+  document.getElementById('acctForm').reset();
+  document.getElementById('acctId').value = '';
+  document.getElementById('modalTitle').textContent = 'Add Account';
+  openModal('formModal');
+}
+function openEdit(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('acctForm').reset();
+  fillForm('acctForm', { id: r.id, name: r.name, subtype: r.subtype, current_balance: r.current_balance, meta: r.meta });
+  document.getElementById('modalTitle').textContent = 'Edit Account';
+  openModal('formModal');
+}
+async function saveForm(e) {
+  e.preventDefault();
+  const data = formToObject('acctForm');
+  const id = data.id;
+  try {
+    if (id) await apiSend(`${API}/${id}`, 'PUT', data);
+    else await apiSend(API, 'POST', data);
+    closeModal('formModal'); showToast('Saved'); load();
+  } catch { showToast('Save failed', 'error'); }
+  return false;
+}
+function del(id) {
+  confirmDelete(async () => {
+    try { await apiSend(`${API}/${id}`, 'DELETE'); showToast('Deleted'); load(); }
+    catch { showToast('Delete failed', 'error'); }
+  });
+}
+
+load().catch(() => showToast('Failed to load', 'error'));
+</script>
+{% endblock %}

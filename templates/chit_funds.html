@@ -67,12 +67,42 @@
     </form>
   </div>
 </div>
+
+<!-- Auction Modal -->
+<div class="modal-overlay" id="auctionModal" style="display:none;">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>Record Auction</h3>
+      <button class="modal-close" onclick="closeModal('auctionModal')">&times;</button>
+    </div>
+    <form id="auctionForm" onsubmit="return saveAuction(event)">
+      <div class="modal-body">
+        <input type="hidden" id="auctionChitId">
+        <p style="font-size:13px;color:#6b7280;margin-bottom:14px;">
+          The prize money is credited to a bank account and this chit becomes a
+          liability (remaining contributions are now an obligation).
+        </p>
+        <div class="form-row single">
+          <div class="form-group"><label>Credit To Account</label><select id="auctionTo"></select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Amount (₹)</label><input id="auctionAmt" type="number" step="any" min="0.01" required></div>
+          <div class="form-group"><label>Date</label><input id="auctionDate" type="date" required></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('auctionModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Record</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const API = '/api/chit-funds';
-let rows = [];
+let rows = [], bankAccounts = [];
 
 function toggleAuction() {
   const auctioned = document.getElementById('auctionStatus').value === 'auctioned';
@@ -81,7 +111,8 @@ function toggleAuction() {
 }
 
 async function load() {
-  rows = await apiGet(API);
+  [rows, bankAccounts] = await Promise.all([apiGet(API), apiGet('/api/accounts')]);
+  bankAccounts = bankAccounts.filter(a => ['BANK','WALLET'].includes(a.account_type_code));
   document.getElementById('totalValue').textContent = fmt(rows.reduce((s, r) => s + r.total_value, 0));
   document.getElementById('monthly').textContent = fmt(rows.reduce((s, r) => s + r.monthly_contribution, 0));
   document.getElementById('auctioned').textContent = fmt(
@@ -102,6 +133,7 @@ async function load() {
       <td style="text-align:right">${r.tenure_months} mo</td>
       <td>${status}</td>
       <td><div class="actions">
+        ${r.auction_status !== 'auctioned' ? `<button class="btn-icon" title="Record auction" onclick='openAuction(${r.id})'>&#128296;</button>` : ''}
         <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
         <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
       </div></td>
@@ -140,6 +172,30 @@ function del(id) {
     try { await apiSend(`${API}/${id}`, 'DELETE'); showToast('Deleted'); load(); }
     catch { showToast('Delete failed', 'error'); }
   });
+}
+
+function openAuction(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('auctionChitId').value = id;
+  document.getElementById('auctionTo').innerHTML =
+    bankAccounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+  document.getElementById('auctionAmt').value = r.auction_amount || '';
+  document.getElementById('auctionDate').value = new Date().toISOString().slice(0,10);
+  openModal('auctionModal');
+}
+async function saveAuction(e) {
+  e.preventDefault();
+  const id = document.getElementById('auctionChitId').value;
+  const body = {
+    to_account_id: document.getElementById('auctionTo').value,
+    amount: document.getElementById('auctionAmt').value,
+    date: document.getElementById('auctionDate').value,
+  };
+  try {
+    await apiSend(`${API}/${id}/auction`, 'POST', body);
+    closeModal('auctionModal'); showToast('Auction recorded'); load();
+  } catch { showToast('Auction failed', 'error'); }
+  return false;
 }
 
 load().catch(() => showToast('Failed to load', 'error'));

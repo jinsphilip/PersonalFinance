@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Statement Import · FinTracker{% endblock %}
+{% block page_title %}Statement Import{% endblock %}
+
+{% block content %}
+<div class="section">
+  <div class="section-header"><span class="section-title">Upload a PDF Statement</span></div>
+  <p style="color:#6b7280;font-size:13px;margin-bottom:16px;">
+    Upload a bank or dividend statement (PDF). Detected rows are parsed into a review
+    queue below — nothing is added to your ledger until you approve it.
+  </p>
+  <div class="form-row">
+    <div class="form-group"><label>PDF File</label><input type="file" id="pdfFile" accept="application/pdf"></div>
+    <div class="form-group"><label>Default Account</label><select id="defaultAccount"></select></div>
+  </div>
+  <button class="btn btn-primary" onclick="upload()">Upload &amp; Parse</button>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Staging Review</span>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" onclick="rejectSelected()">Reject Selected</button>
+      <button class="btn btn-primary" onclick="approveSelected()">Approve Selected</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th><input type="checkbox" id="selectAll" onchange="toggleAll(this)"></th>
+        <th>Date</th><th>Detected Text</th><th>Category</th><th>Account</th>
+        <th style="text-align:right">Amount</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let staged = [], accounts = [], categories = [], catByCode = {};
+
+async function load() {
+  [staged, accounts, categories] = await Promise.all([
+    apiGet('/api/ingest/staged'), apiGet('/api/accounts'), apiGet('/api/categories'),
+  ]);
+  catByCode = Object.fromEntries(categories.map(c => [c.code, c]));
+  document.getElementById('defaultAccount').innerHTML =
+    accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+  render();
+}
+
+function catOptions(sel) {
+  return categories.map(c => `<option value="${c.code}" ${c.code===sel?'selected':''}>${esc(c.display_name)}</option>`).join('');
+}
+function acctOptions(sel) {
+  return accounts.map(a => `<option value="${a.id}" ${a.id==sel?'selected':''}>${esc(a.name)}</option>`).join('');
+}
+
+function render() {
+  const tb = document.getElementById('tbody');
+  if (!staged.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">No rows awaiting review. Upload a statement above.</td></tr>'; return; }
+  tb.innerHTML = staged.map(r => `
+    <tr data-id="${r.id}">
+      <td><input type="checkbox" class="rowCheck" value="${r.id}"></td>
+      <td><input type="date" class="f-date" value="${r.parsed_date||''}" style="padding:6px;border:1px solid #d1d5db;border-radius:6px;"></td>
+      <td style="font-size:12px;color:#6b7280;max-width:280px;">${esc(r.raw_text)}</td>
+      <td><select class="f-cat" style="padding:6px;border:1px solid #d1d5db;border-radius:6px;">${catOptions(r.suggested_category)}</select></td>
+      <td><select class="f-acct" style="padding:6px;border:1px solid #d1d5db;border-radius:6px;">${acctOptions(r.suggested_account_id)}</select></td>
+      <td style="text-align:right;font-weight:600">${fmt(r.parsed_amount)}</td>
+    </tr>`).join('');
+}
+
+function toggleAll(cb) {
+  document.querySelectorAll('.rowCheck').forEach(c => { c.checked = cb.checked; });
+}
+function selectedRows() {
+  return [...document.querySelectorAll('.rowCheck:checked')].map(c => c.closest('tr'));
+}
+
+async function upload() {
+  const f = document.getElementById('pdfFile').files[0];
+  if (!f) { showToast('Choose a PDF first', 'error'); return; }
+  const acct = document.getElementById('defaultAccount').value;
+  try {
+    const res = await apiUpload('/api/ingest/upload', f, { account_id: acct });
+    if (res.count === 0) showToast('No transactions detected in this PDF', 'error');
+    else showToast(`Parsed ${res.count} row(s) for review`);
+    await load();
+  } catch { showToast('Upload failed', 'error'); }
+}
+
+async function approveSelected() {
+  const trs = selectedRows();
+  if (!trs.length) { showToast('Select rows to approve', 'error'); return; }
+  const rows = trs.map(tr => {
+    const code = tr.querySelector('.f-cat').value;
+    return {
+      id: Number(tr.dataset.id),
+      category_code: code,
+      direction: (catByCode[code]||{}).direction,
+      account_id: tr.querySelector('.f-acct').value,
+      date: tr.querySelector('.f-date').value,
+    };
+  });
+  // Transfers need two internal accounts; the simple importer only knows one side.
+  if (rows.some(r => r.direction === 'TRANSFER')) {
+    showToast('Transfer rows: set a non-transfer category or add them manually', 'error');
+    return;
+  }
+  try {
+    const res = await apiSend('/api/ingest/approve', 'POST', { rows });
+    showToast(`Posted ${res.posted} transaction(s)`); await load();
+  } catch { showToast('Approve failed', 'error'); }
+}
+
+async function rejectSelected() {
+  const ids = selectedRows().map(tr => Number(tr.dataset.id));
+  if (!ids.length) { showToast('Select rows to reject', 'error'); return; }
+  try {
+    await apiSend('/api/ingest/reject', 'POST', { ids });
+    showToast(`Rejected ${ids.length} row(s)`); await load();
+  } catch { showToast('Reject failed', 'error'); }
+}
+
+load().catch(() => showToast('Failed to load', 'error'));
+</script>
+{% endblock %}

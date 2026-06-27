@@ -32,6 +32,8 @@ REM --hidden-import flask_sqlalchemy ensures the ORM is collected.
     --add-data "templates;templates" ^
     --add-data "static;static" ^
     --hidden-import flask_sqlalchemy ^
+    --collect-all pdfplumber ^
+    --collect-all pdfminer ^
     app.py
 if errorlevel 1 (
     echo [error] Build failed.

@@ -4,6 +4,131 @@ from datetime import datetime
 db = SQLAlchemy()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Ledger engine — unified accounts + double-entry-inspired transactions.
+# Money uses Numeric(15,2) to avoid IEEE-754 float drift on running balances.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _money(value):
+    """Coerce a Numeric/Decimal/None DB value to a plain float for JSON."""
+    return float(value) if value is not None else 0.0
+
+
+class AccountTypeMaster(db.Model):
+    __tablename__ = 'account_types_master'
+    code = db.Column(db.String(30), primary_key=True)      # BANK, WALLET, CHIT, LOAN_ASSET, EXTERNAL
+    display_name = db.Column(db.String(100), nullable=False)
+    icon_slug = db.Column(db.String(50))
+    is_active = db.Column(db.Boolean, default=True)
+
+    def to_dict(self):
+        return {
+            'code': self.code,
+            'display_name': self.display_name,
+            'icon_slug': self.icon_slug,
+            'is_active': self.is_active,
+        }
+
+
+class TransactionCategoryMaster(db.Model):
+    __tablename__ = 'transaction_categories_master'
+    code = db.Column(db.String(30), primary_key=True)      # SALARY, DIVIDEND, EXPENSE_FOOD, EMI, TRANSFER...
+    display_name = db.Column(db.String(100), nullable=False)
+    direction = db.Column(db.String(10), nullable=False)   # INFLOW | OUTFLOW | TRANSFER
+
+    def to_dict(self):
+        return {
+            'code': self.code,
+            'display_name': self.display_name,
+            'direction': self.direction,
+        }
+
+
+class Account(db.Model):
+    __tablename__ = 'accounts'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(150), nullable=False)
+    account_type_code = db.Column(db.String(30), db.ForeignKey('account_types_master.code'), nullable=False)
+    current_balance = db.Column(db.Numeric(15, 2), nullable=False, default=0)
+    is_liability = db.Column(db.Boolean, default=False)    # flipped True for a chit after auction
+    subtype = db.Column(db.String(20), default='bank')     # bank | wallet (for BANK-family accounts)
+    meta = db.Column(db.String(200))                       # account number / organizer / friend name
+
+    account_type = db.relationship('AccountTypeMaster')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'account_type_code': self.account_type_code,
+            'account_type_name': self.account_type.display_name if self.account_type else self.account_type_code,
+            'current_balance': _money(self.current_balance),
+            'is_liability': bool(self.is_liability),
+            'subtype': self.subtype,
+            'meta': self.meta,
+        }
+
+
+class Transaction(db.Model):
+    __tablename__ = 'transactions'
+    id = db.Column(db.Integer, primary_key=True)
+    from_account_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)
+    to_account_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
+    category_code = db.Column(db.String(30), db.ForeignKey('transaction_categories_master.code'), nullable=False)
+    transaction_date = db.Column(db.String(20), nullable=False)
+    description = db.Column(db.String(200))
+    source = db.Column(db.String(20), default='manual')    # manual | ingested
+    status = db.Column(db.String(20), default='posted')    # posted | staged
+
+    from_account = db.relationship('Account', foreign_keys=[from_account_id])
+    to_account = db.relationship('Account', foreign_keys=[to_account_id])
+    category = db.relationship('TransactionCategoryMaster')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'from_account_id': self.from_account_id,
+            'to_account_id': self.to_account_id,
+            'from_account_name': self.from_account.name if self.from_account else None,
+            'to_account_name': self.to_account.name if self.to_account else None,
+            'amount': _money(self.amount),
+            'category_code': self.category_code,
+            'category_name': self.category.display_name if self.category else self.category_code,
+            'direction': self.category.direction if self.category else None,
+            'transaction_date': self.transaction_date,
+            'description': self.description,
+            'source': self.source,
+            'status': self.status,
+        }
+
+
+class StagedTransaction(db.Model):
+    __tablename__ = 'staged_transactions'
+    id = db.Column(db.Integer, primary_key=True)
+    batch_id = db.Column(db.String(40), nullable=False)
+    raw_text = db.Column(db.String(400))
+    parsed_date = db.Column(db.String(20))
+    parsed_amount = db.Column(db.Numeric(15, 2))
+    direction = db.Column(db.String(10))                   # INFLOW | OUTFLOW | TRANSFER
+    suggested_category = db.Column(db.String(30))
+    suggested_account_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)
+    status = db.Column(db.String(20), default='pending')   # pending | approved | rejected
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'batch_id': self.batch_id,
+            'raw_text': self.raw_text,
+            'parsed_date': self.parsed_date,
+            'parsed_amount': _money(self.parsed_amount),
+            'direction': self.direction,
+            'suggested_category': self.suggested_category,
+            'suggested_account_id': self.suggested_account_id,
+            'status': self.status,
+        }
+
+
 class MutualFund(db.Model):
     __tablename__ = 'mutual_funds'
     id = db.Column(db.Integer, primary_key=True)
@@ -140,11 +265,13 @@ class ChitFund(db.Model):
     auction_amount = db.Column(db.Float, default=0)
     auction_date = db.Column(db.String(20))
     organizer = db.Column(db.String(100))
+    account_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)  # linked CHIT ledger account
 
     def to_dict(self):
         return {
             'id': self.id,
             'chit_name': self.chit_name,
+            'account_id': self.account_id,
             'total_value': self.total_value,
             'monthly_contribution': self.monthly_contribution,
             'tenure_months': self.tenure_months,
@@ -193,9 +320,10 @@ class CreditGiven(db.Model):
     notes = db.Column(db.Text)
     status = db.Column(db.String(20), default='outstanding')  # outstanding/returned
     returned_date = db.Column(db.String(20))
+    account_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)  # linked LOAN_ASSET account
 
     def to_dict(self):
-        return {
+        d = {
             'id': self.id,
             'person_name': self.person_name,
             'amount': self.amount,
@@ -203,7 +331,16 @@ class CreditGiven(db.Model):
             'notes': self.notes,
             'status': self.status,
             'returned_date': self.returned_date,
+            'account_id': self.account_id,
         }
+        # Outstanding receivable comes from the linked ledger account when present.
+        if self.account_id is not None:
+            from sqlalchemy.orm import object_session
+            acct = object_session(self).get(Account, self.account_id) if object_session(self) else None
+            d['outstanding'] = _money(acct.current_balance) if acct else self.amount
+        else:
+            d['outstanding'] = self.amount if self.status == 'outstanding' else 0.0
+        return d
 
 
 class Income(db.Model):

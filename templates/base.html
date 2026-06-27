@@ -19,14 +19,14 @@
         <a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}">
           <span class="nav-icon">&#9783;</span> Dashboard
         </a>
-        <a href="/bank-accounts" class="nav-item {% if request.path == '/bank-accounts' %}active{% endif %}">
-          <span class="nav-icon">&#127968;</span> Bank Accounts
+        <a href="/accounts" class="nav-item {% if request.path in ['/accounts', '/bank-accounts'] %}active{% endif %}">
+          <span class="nav-icon">&#127974;</span> Accounts
         </a>
-        <a href="/expenses" class="nav-item {% if request.path == '/expenses' %}active{% endif %}">
-          <span class="nav-icon">&#128179;</span> Expenses
+        <a href="/transactions" class="nav-item {% if request.path in ['/transactions', '/expenses', '/transfers', '/income'] %}active{% endif %}">
+          <span class="nav-icon">&#8644;</span> Transactions
         </a>
-        <a href="/transfers" class="nav-item {% if request.path == '/transfers' %}active{% endif %}">
-          <span class="nav-icon">&#8644;</span> Transfers
+        <a href="/import" class="nav-item {% if request.path == '/import' %}active{% endif %}">
+          <span class="nav-icon">&#128196;</span> Statement Import
         </a>
         <a href="/mutual-funds" class="nav-item {% if request.path == '/mutual-funds' %}active{% endif %}">
           <span class="nav-icon">&#128200;</span> Mutual Funds
@@ -45,9 +45,6 @@
         </a>
         <a href="/credits" class="nav-item {% if request.path == '/credits' %}active{% endif %}">
           <span class="nav-icon">&#129309;</span> Credits Given
-        </a>
-        <a href="/income" class="nav-item {% if request.path == '/income' %}active{% endif %}">
-          <span class="nav-icon">&#128178;</span> Income
         </a>
       </nav>
     </aside>

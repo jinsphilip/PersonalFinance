@@ -78,6 +78,7 @@ def ensure_legacy_columns():
     patches = {
         'credits': [('account_id', 'INTEGER')],
         'chit_funds': [('account_id', 'INTEGER')],
+        'stocks': [('currency', "VARCHAR(8) DEFAULT 'INR'"), ('fx_rate', 'FLOAT DEFAULT 1.0')],
         'bank_accounts': [('account_subtype', "VARCHAR(20) DEFAULT 'bank'")],
         'expenses': [('account_name', 'VARCHAR(100)')],
         'transfers': [('from_account_name', 'VARCHAR(100)'),
@@ -255,7 +256,8 @@ def api_dashboard():
             asset_accounts += bal
 
     mf_total = sum(f.units * f.current_nav for f in MutualFund.query.all())
-    stock_total = sum(s.quantity * s.current_price for s in Stock.query.all())
+    # Convert each holding to INR via its fx_rate (1 for INR-quoted stocks).
+    stock_total = sum(s.quantity * s.current_price * (s.fx_rate or 1.0) for s in Stock.query.all())
     fd_total = sum(f.principal_amount for f in FixedDeposit.query.all())
     loan_total = sum(l.outstanding_amount for l in Loan.query.all())
 
@@ -439,12 +441,21 @@ def api_stocks():
     if request.method == 'GET':
         return jsonify([s.to_dict() for s in Stock.query.all()])
     data = request.json
+    currency = (data.get('currency') or 'INR').upper()
+    # Resolve fx: explicit value > live lookup for non-INR > 1.0 fallback.
+    if data.get('fx_rate'):
+        fx_rate = float(data['fx_rate'])
+    elif currency != 'INR':
+        fx_rate = prices.fetch_fx_rate(currency, 'INR') or 1.0
+    else:
+        fx_rate = 1.0
     s = Stock(
         demat_account=data['demat_account'], company_name=data['company_name'],
         ticker=data['ticker'], quantity=int(data['quantity']),
         avg_price=float(data['avg_price']), current_price=float(data['current_price']),
         sector=data.get('sector', ''), exchange=data.get('exchange', 'NSE'),
         last_updated=data.get('last_updated', ''),
+        currency=currency, fx_rate=fx_rate,
     )
     db.session.add(s)
     db.session.commit()
@@ -467,6 +478,12 @@ def api_stock(id):
     s.current_price = float(data.get('current_price', s.current_price))
     s.sector = data.get('sector', s.sector)
     s.exchange = data.get('exchange', s.exchange)
+    if 'currency' in data:
+        s.currency = (data.get('currency') or 'INR').upper()
+        if s.currency == 'INR':
+            s.fx_rate = 1.0
+    if 'fx_rate' in data:
+        s.fx_rate = float(data.get('fx_rate') or s.fx_rate or 1.0)
     db.session.commit()
     return jsonify(s.to_dict())
 
@@ -705,11 +722,21 @@ def api_refresh_prices():
             else:
                 failed.append(f'{f.fund_name} (scheme {f.scheme_code})')
 
+    fx_cache = {'INR': 1.0}   # currency → INR rate, fetched at most once per refresh
     for s in Stock.query.all():
-        price = prices.fetch_stock_price(s.ticker, s.exchange)
+        price, currency = prices.fetch_stock_price(s.ticker, s.exchange)
         if price is not None:
             s.current_price = price
             s.last_updated = today
+            cur = (currency or s.currency or 'INR').upper()
+            s.currency = cur
+            if cur not in fx_cache:
+                fx_cache[cur] = prices.fetch_fx_rate(cur, 'INR')
+            rate = fx_cache.get(cur)
+            if rate:
+                s.fx_rate = rate
+            elif cur != 'INR' and not s.fx_rate:
+                failed.append(f'{cur}→INR rate unavailable')
             updated_stocks += 1
         else:
             failed.append(f'{s.ticker} ({s.exchange})')

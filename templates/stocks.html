@@ -39,18 +39,30 @@
           <div class="form-group"><label>Company Name</label><input name="company_name" required></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Ticker</label><input name="ticker" required placeholder="TCS"></div>
+          <div class="form-group"><label>Ticker</label><input name="ticker" required placeholder="TCS / DELL"></div>
           <div class="form-group"><label>Exchange</label>
-            <select name="exchange"><option value="NSE">NSE</option><option value="BSE">BSE</option></select>
+            <select name="exchange" onchange="onExchangeChange(this.value)">
+              <option value="NSE">NSE</option><option value="BSE">BSE</option>
+              <option value="NYSE">NYSE</option><option value="NASDAQ">NASDAQ</option>
+            </select>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group"><label>Quantity</label><input name="quantity" type="number" step="1" required></div>
-          <div class="form-group"><label>Avg Price (₹)</label><input name="avg_price" type="number" step="any" required></div>
+          <div class="form-group"><label>Currency</label>
+            <select name="currency" id="currencySel">
+              <option value="INR">INR ₹</option><option value="USD">USD $</option>
+            </select>
+          </div>
         </div>
-        <div class="form-row single">
-          <div class="form-group"><label>Current Price (₹)</label><input name="current_price" type="number" step="any" required></div>
+        <div class="form-row">
+          <div class="form-group"><label>Avg Price (native)</label><input name="avg_price" type="number" step="any" required></div>
+          <div class="form-group"><label>Current Price (native)</label><input name="current_price" type="number" step="any" required></div>
         </div>
+        <p style="font-size:12px;color:#6b7280;margin-top:4px;">
+          Enter prices in the stock's own currency. For non-INR stocks the USD→INR
+          rate is fetched on Refresh Prices and used for portfolio totals.
+        </p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
@@ -70,6 +82,15 @@ let collapsed = new Set(JSON.parse(localStorage.getItem('stockCollapsed') || '[]
 
 function saveCollapsed() {
   localStorage.setItem('stockCollapsed', JSON.stringify([...collapsed]));
+}
+
+// Native-currency symbol prefix for price columns.
+function ccy(c) { return c === 'USD' ? '$' : (c && c !== 'INR' ? '' : '₹'); }
+
+// US exchanges default to USD; NSE/BSE to INR.
+function onExchangeChange(ex) {
+  const sel = document.getElementById('currencySel');
+  if (sel) sel.value = (ex === 'NYSE' || ex === 'NASDAQ') ? 'USD' : 'INR';
 }
 
 async function load() {
@@ -112,10 +133,10 @@ async function load() {
             <tbody>${items.map(r => `
               <tr>
                 <td>${esc(r.company_name)}</td>
-                <td>${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span></td>
+                <td>${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''}</td>
                 <td style="text-align:right">${r.quantity}</td>
-                <td style="text-align:right">${fmtNum(r.avg_price)}</td>
-                <td style="text-align:right">${fmtNum(r.current_price)}</td>
+                <td style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
+                <td style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
                 <td style="text-align:right">${fmt(r.invested_value)}</td>
                 <td style="text-align:right">${fmt(r.current_value)}</td>
                 <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>

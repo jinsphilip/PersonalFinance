@@ -1,20 +1,27 @@
-"""One-off importer for IIFL holdings.
+"""Bulk importer for demat holdings.
 
-Inserts the listed scrips into the `stocks` table. Idempotent: a scrip already
+Inserts each broker's scrips into the `stocks` table. Idempotent: a scrip already
 present in the same demat account is updated (qty + avg price) rather than
-duplicated. current_price is seeded to the buy price — run "Refresh Prices" in
-the app (or POST /api/refresh-prices) afterwards to pull live NSE prices.
+duplicated. The same ticker held in two demats stays two separate rows because
+uniqueness is keyed on (demat_account, ticker).
 
-Usage:  python import_stocks.py
+current_price is seeded to the buy price — run "Refresh Prices" in the app (or
+POST /api/refresh-prices) afterwards to pull live NSE prices.
+
+Usage:
+    python import_stocks.py            # import all brokers below
+    python import_stocks.py angel      # import only ANGEL
+    python import_stocks.py iifl       # import only IIFL
 """
+import sys
+
 from app import app
 from models import db, Stock
 
-BROKER = 'IIFL'
 EXCHANGE = 'NSE'
 
-# (ticker, qty, avg_buy_price)
-HOLDINGS = [
+# (ticker, qty, avg_buy_price) — tickers upper-cased, commas stripped.
+IIFL_HOLDINGS = [
     ('63MOONS',     350,   449.09),
     ('AJAXENGG',     23,   629.00),
     ('BEL',         450,   411.89),
@@ -32,33 +39,64 @@ HOLDINGS = [
     ('WAAREEENER',  240,  3413.35),
 ]
 
+ANGEL_HOLDINGS = [
+    ('ANANTRAJ',     200,   530.40),
+    ('ASHOKA',      1300,   221.42),
+    ('ENGINERSIN',  2400,   262.83),
+    ('GATEWAY',      500,   110.13),
+    ('GENUSPOWER',   350,   379.90),
+    ('IDFCFIRSTB', 12250,    79.01),
+    ('INDUSTOWER',   136,   362.60),
+    ('ITBEES',      2200,    38.56),
+    ('JWL',          390,   352.66),
+    ('NCC',          600,   326.47),
+    ('WAAREEENER',    30,  2792.84),
+    ('WELSPUNLIV',   250,   182.22),
+    ('UNIONBANK',    500,   175.16),
+]
 
-def run():
+BROKERS = {
+    'IIFL': IIFL_HOLDINGS,
+    'ANGEL': ANGEL_HOLDINGS,
+}
+
+
+def import_holdings(broker, holdings, exchange=EXCHANGE):
     inserted = updated = 0
+    for ticker, qty, price in holdings:
+        existing = Stock.query.filter_by(demat_account=broker, ticker=ticker).first()
+        if existing:
+            existing.quantity = qty
+            existing.avg_price = price
+            if not existing.current_price:
+                existing.current_price = price
+            updated += 1
+        else:
+            db.session.add(Stock(
+                demat_account=broker,
+                company_name=ticker,      # friendly name unknown; refresh fills price
+                ticker=ticker,
+                quantity=qty,
+                avg_price=price,
+                current_price=price,      # seed; refresh pulls live NSE price
+                sector='',
+                exchange=exchange,
+            ))
+            inserted += 1
+    db.session.commit()
+    print(f"{broker}: inserted {inserted}, updated {updated}.")
+
+
+def run(which=None):
+    targets = BROKERS if not which else {which.upper(): BROKERS[which.upper()]}
     with app.app_context():
-        for ticker, qty, price in HOLDINGS:
-            existing = Stock.query.filter_by(demat_account=BROKER, ticker=ticker).first()
-            if existing:
-                existing.quantity = qty
-                existing.avg_price = price
-                if not existing.current_price:
-                    existing.current_price = price
-                updated += 1
-            else:
-                db.session.add(Stock(
-                    demat_account=BROKER,
-                    company_name=ticker,      # friendly name unknown; refresh fills price
-                    ticker=ticker,
-                    quantity=qty,
-                    avg_price=price,
-                    current_price=price,      # seed; refresh pulls live NSE price
-                    sector='',
-                    exchange=EXCHANGE,
-                ))
-                inserted += 1
-        db.session.commit()
-    print(f"Done. Inserted {inserted}, updated {updated} ({BROKER}).")
+        for broker, holdings in targets.items():
+            import_holdings(broker, holdings)
 
 
 if __name__ == '__main__':
-    run()
+    arg = sys.argv[1] if len(sys.argv) > 1 else None
+    if arg and arg.upper() not in BROKERS:
+        print(f"Unknown broker '{arg}'. Choose from: {', '.join(BROKERS)} (or omit for all).")
+        sys.exit(1)
+    run(arg)

@@ -14,23 +14,12 @@
   <div class="section-header">
     <span class="section-title">Holdings</span>
     <div class="actions">
+      <button class="btn btn-secondary" id="toggleAllBtn" onclick="toggleAll()">Collapse all</button>
       <button class="btn btn-secondary" id="refreshBtn">↻ Refresh NAVs</button>
       <button class="btn btn-primary" onclick="openAdd()">+ Add Fund</button>
     </div>
   </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Platform</th><th>Fund</th><th style="text-align:right">Units</th>
-          <th style="text-align:right">Avg NAV</th><th style="text-align:right">Cur NAV</th>
-          <th style="text-align:right">Invested</th><th style="text-align:right">Current</th>
-          <th style="text-align:right">Gain/Loss</th><th></th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
-  </div>
+  <div id="groups"></div>
 </div>
 
 <div class="modal-overlay" id="formModal" style="display:none;">
@@ -74,6 +63,12 @@
 <script>
 const API = '/api/mutual-funds';
 let rows = [];
+// Collapsed platforms persist across reloads.
+let collapsed = new Set(JSON.parse(localStorage.getItem('mfCollapsed') || '[]'));
+
+function saveCollapsed() {
+  localStorage.setItem('mfCollapsed', JSON.stringify([...collapsed]));
+}
 
 async function load() {
   rows = await apiGet(API);
@@ -86,23 +81,71 @@ async function load() {
   gainEl.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
   document.getElementById('mfCount').textContent = rows.length;
 
-  const tb = document.getElementById('tbody');
-  if (!rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">No mutual funds yet. Add one to get started.</td></tr>'; return; }
-  tb.innerHTML = rows.map(r => `
-    <tr>
-      <td>${esc(r.platform)}</td>
-      <td>${esc(r.fund_name)}</td>
-      <td style="text-align:right">${fmtNum(r.units, 3)}</td>
-      <td style="text-align:right">${fmtNum(r.avg_nav)}</td>
-      <td style="text-align:right">${fmtNum(r.current_nav)}</td>
-      <td style="text-align:right">${fmt(r.invested_value)}</td>
-      <td style="text-align:right">${fmt(r.current_value)}</td>
-      <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
-      <td><div class="actions">
-        <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
-        <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
-      </div></td>
-    </tr>`).join('');
+  const wrap = document.getElementById('groups');
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No mutual funds yet. Add one to get started.</div>'; return; }
+
+  const platforms = [...new Set(rows.map(r => r.platform))].sort();
+  wrap.innerHTML = platforms.map(plat => {
+    const items = rows.filter(r => r.platform === plat);
+    const pInv = items.reduce((s, r) => s + r.invested_value, 0);
+    const pCur = items.reduce((s, r) => s + r.current_value, 0);
+    const pPct = pInv > 0 ? (pCur - pInv) / pInv * 100 : 0;
+    const isOpen = !collapsed.has(plat);
+    return `
+      <div class="broker-group">
+        <div class="broker-header" onclick="togglePlatform('${esc(plat)}')">
+          <span class="broker-caret">${isOpen ? '▾' : '▸'}</span>
+          <span class="broker-name">${esc(plat)}</span>
+          <span class="broker-meta">${items.length} fund${items.length>1?'s':''}
+            · Cur ${fmt(pCur)} · ${gainPctBadge(pPct)}</span>
+        </div>
+        <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th>Fund</th><th style="text-align:right">Units</th>
+              <th style="text-align:right">Avg NAV</th><th style="text-align:right">Cur NAV</th>
+              <th style="text-align:right">Invested</th><th style="text-align:right">Current</th>
+              <th style="text-align:right">Gain/Loss</th><th></th>
+            </tr></thead>
+            <tbody>${items.map(r => `
+              <tr>
+                <td>${esc(r.fund_name)}</td>
+                <td style="text-align:right">${fmtNum(r.units, 3)}</td>
+                <td style="text-align:right">${fmtNum(r.avg_nav)}</td>
+                <td style="text-align:right">${fmtNum(r.current_nav)}</td>
+                <td style="text-align:right">${fmt(r.invested_value)}</td>
+                <td style="text-align:right">${fmt(r.current_value)}</td>
+                <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
+                <td><div class="actions">
+                  <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
+                  <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
+                </div></td>
+              </tr>`).join('')}</tbody>
+          </table></div>
+        </div>
+      </div>`;
+  }).join('');
+  updateToggleAllLabel(platforms);
+}
+
+function togglePlatform(plat) {
+  if (collapsed.has(plat)) collapsed.delete(plat); else collapsed.add(plat);
+  saveCollapsed();
+  load();
+}
+
+function toggleAll() {
+  const platforms = [...new Set(rows.map(r => r.platform))];
+  const anyOpen = platforms.some(p => !collapsed.has(p));
+  if (anyOpen) platforms.forEach(p => collapsed.add(p));   // collapse all
+  else collapsed.clear();                                   // expand all
+  saveCollapsed();
+  load();
+}
+
+function updateToggleAllLabel(platforms) {
+  const anyOpen = platforms.some(p => !collapsed.has(p));
+  document.getElementById('toggleAllBtn').textContent = anyOpen ? 'Collapse all' : 'Expand all';
 }
 
 function openAdd() {

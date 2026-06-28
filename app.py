@@ -32,7 +32,27 @@ else:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///finance.db'
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Wait up to 30s for a busy lock instead of failing immediately (sqlite default 5s).
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'timeout': 30}}
 db.init_app(app)
+
+
+# Every new SQLite connection: enable WAL (readers don't block the writer) and a
+# generous busy timeout, so the price-refresh write can't collide with the
+# browser's concurrent reads and raise "database is locked". Registered on the
+# Engine class so it applies without needing an app context at import time.
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+
+
+@event.listens_for(Engine, 'connect')
+def _sqlite_pragmas(dbapi_connection, _record):
+    import sqlite3
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cur = dbapi_connection.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=30000')
+        cur.close()
 
 
 # ─── Legacy → ledger migration ──────────────────────────────────────────────

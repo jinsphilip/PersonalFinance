@@ -293,6 +293,8 @@ def api_dashboard():
         'breakdown': {
             'Cash & Wallets': round(sum(float(a.current_balance or 0) for a in
                 Account.query.filter(Account.account_type_code.in_(['BANK', 'WALLET'])).all()), 2),
+            'Trading Cash': round(sum(float(a.current_balance or 0) for a in
+                Account.query.filter_by(account_type_code='DEMAT').all()), 2),
             'Mutual Funds': round(mf_total, 2),
             'Stocks': round(stock_total, 2),
             'Fixed Deposits': round(fd_total, 2),
@@ -307,6 +309,9 @@ def api_dashboard():
 
 # ─── Accounts (unified ledger accounts) ─────────────────────────────────────────
 
+_SUBTYPE_TO_TYPE = {'bank': 'BANK', 'wallet': 'WALLET', 'demat': 'DEMAT'}
+
+
 @app.route('/api/accounts', methods=['GET', 'POST'])
 @app.route('/api/bank-accounts', methods=['GET', 'POST'])   # back-compat alias
 def api_accounts():
@@ -315,7 +320,7 @@ def api_accounts():
         return jsonify([a.to_dict() for a in accts])
     data = request.json
     subtype = data.get('subtype', 'bank')
-    type_code = data.get('account_type_code') or ('WALLET' if subtype == 'wallet' else 'BANK')
+    type_code = data.get('account_type_code') or _SUBTYPE_TO_TYPE.get(subtype, 'BANK')
     a = Account(
         name=data.get('name') or data.get('bank_name'),
         account_type_code=type_code,
@@ -342,13 +347,37 @@ def api_account(id):
         a.account_type_code = data['account_type_code']
     if 'subtype' in data:
         a.subtype = data['subtype']
-        a.account_type_code = 'WALLET' if data['subtype'] == 'wallet' else (
-            a.account_type_code if a.account_type_code not in ('BANK', 'WALLET') else 'BANK')
+        # Only remap the cash-account family (bank/wallet/demat); leave CHIT/LOAN_ASSET.
+        if a.account_type_code in ('BANK', 'WALLET', 'DEMAT'):
+            a.account_type_code = _SUBTYPE_TO_TYPE.get(data['subtype'], 'BANK')
     if 'current_balance' in data or 'balance' in data:
         a.current_balance = float(data.get('current_balance', data.get('balance', a.current_balance)))
     a.meta = data.get('meta', data.get('account_number', a.meta))
     db.session.commit()
     return jsonify(a.to_dict())
+
+
+@app.route('/api/accounts/<int:id>/pnl', methods=['POST'])
+def api_account_pnl(id):
+    """Record realised trading P&L on a demat account: gain credits it, loss
+    debits it. Posts a TRADING_GAIN/TRADING_LOSS transaction so it shows in
+    history and the balance updates atomically."""
+    a = Account.query.get_or_404(id)
+    data = request.json
+    amount = float(data['amount'])
+    kind = (data.get('kind') or 'gain').lower()
+    when = data.get('date') or date.today().isoformat()
+    note = data.get('note', '') or f"Option trading {kind}"
+    if kind == 'loss':
+        txn = services.post_transaction(
+            from_account_id=a.id, to_account_id=None, amount=amount,
+            category_code='TRADING_LOSS', transaction_date=when, description=note)
+    else:
+        txn = services.post_transaction(
+            from_account_id=None, to_account_id=a.id, amount=amount,
+            category_code='TRADING_GAIN', transaction_date=when, description=note)
+    return jsonify({'account': db.session.get(Account, a.id).to_dict(),
+                    'transaction': txn.to_dict()}), 201
 
 
 # ─── Transactions (the ledger) ──────────────────────────────────────────────────

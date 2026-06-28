@@ -569,7 +569,8 @@ def api_fixed_deposits():
         bank_name=data['bank_name'], account_number=data.get('account_number', ''),
         principal_amount=float(data['principal_amount']), interest_rate=float(data['interest_rate']),
         start_date=data.get('start_date', ''), maturity_date=data.get('maturity_date', ''),
-        maturity_amount=float(data['maturity_amount']), fd_type=data.get('fd_type', 'cumulative'),
+        maturity_amount=float(data.get('maturity_amount') or 0),  # auto-computed from rate+dates
+        fd_type=data.get('fd_type', 'cumulative'),
     )
     db.session.add(f)
     db.session.commit()

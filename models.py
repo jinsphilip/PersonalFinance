@@ -296,7 +296,40 @@ class FixedDeposit(db.Model):
     fd_type = db.Column(db.String(20), default='cumulative')  # cumulative/non-cumulative
 
     def to_dict(self):
-        gain = self.maturity_amount - self.principal_amount
+        from datetime import date as _date, datetime as _dt
+
+        def _pd(s):
+            try:
+                return _dt.strptime(s, '%Y-%m-%d').date()
+            except (TypeError, ValueError):
+                return None
+
+        def _value(asof):
+            """FD value at `asof`. Cumulative compounds quarterly (Indian norm);
+            non-cumulative accrues simple interest (interest is paid out)."""
+            start = _pd(self.start_date)
+            p, r = self.principal_amount or 0, self.interest_rate or 0
+            if not start or not asof or asof <= start or p <= 0 or r <= 0:
+                return p
+            years = (asof - start).days / 365.25
+            if (self.fd_type or '').lower().startswith('non'):
+                return p * (1 + r / 100 * years)
+            return p * (1 + r / 400) ** (4 * years)
+
+        start = _pd(self.start_date)
+        mat = _pd(self.maturity_date)
+        today = _date.today()
+        # Accrual stops at maturity even if today is later.
+        asof = mat if (mat and today > mat) else today
+
+        auto_maturity = round(_value(mat), 2) if mat else 0
+        # Use the auto value; fall back to any manually stored amount only if no dates.
+        maturity_amount = auto_maturity or (self.maturity_amount or 0)
+        current_value = round(_value(asof), 2)
+        interest_earned = round(current_value - (self.principal_amount or 0), 2)
+        matured = bool(mat and today >= mat)
+        days_to_maturity = (mat - today).days if (mat and not matured) else 0
+
         return {
             'id': self.id,
             'bank_name': self.bank_name,
@@ -305,9 +338,13 @@ class FixedDeposit(db.Model):
             'interest_rate': self.interest_rate,
             'start_date': self.start_date,
             'maturity_date': self.maturity_date,
-            'maturity_amount': self.maturity_amount,
+            'maturity_amount': maturity_amount,          # auto-computed from rate + dates
             'fd_type': self.fd_type,
-            'interest_earned': round(gain, 2),
+            'current_value': current_value,              # accrued value as of today
+            'interest_earned': interest_earned,          # earned so far (to today)
+            'maturity_interest': round(maturity_amount - (self.principal_amount or 0), 2),
+            'matured': matured,
+            'days_to_maturity': days_to_maturity,
         }
 
 

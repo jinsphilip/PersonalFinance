@@ -55,9 +55,22 @@ ANGEL_HOLDINGS = [
     ('UNIONBANK',    500,   175.16),
 ]
 
+KOTAK_HOLDINGS = [
+    ('JPPOWER',    1300,    19.07),
+    ('KNRCON',      293,   342.27),
+    ('LICI',        590,   509.50),
+    ('MICEL',      1000,   101.38),
+    ('NHPC',        900,    94.35),
+    ('PRAJIND',     225,   800.75),
+    ('RAILTEL',     226,   462.08),
+    ('STOVEKRAFT',  121,   906.74),
+    ('VPRPL',       916,   196.61),
+]
+
 BROKERS = {
     'IIFL': IIFL_HOLDINGS,
     'ANGEL': ANGEL_HOLDINGS,
+    'KOTAK': KOTAK_HOLDINGS,
 }
 
 

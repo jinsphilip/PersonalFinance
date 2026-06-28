@@ -67,10 +67,57 @@ KOTAK_HOLDINGS = [
     ('VPRPL',       916,   196.61),
 ]
 
+# Includes a few bonds/ETFs (1050KSL27-F, LIQUIDCASE, PHARMABEES) that won't
+# resolve on live NSE price refresh — they keep their buy price.
+ZERODHA_HOLDINGS = [
+    ('1050KSL27-F',    3, 100000.00),
+    ('ADANIPOWER',   500,    230.00),
+    ('BANKINDIA',   4500,    109.76),
+    ('BEL',          100,    380.00),
+    ('CCAVENUE',    4000,     26.33),
+    ('ENGINERSIN',   400,    201.19),
+    ('ETERNAL',      155,    308.15),
+    ('GATEWAY',     1000,     60.50),
+    ('IDFCFIRSTB',  7500,     71.51),
+    ('INDHOTEL',      62,    688.72),
+    ('IOC',         4550,    153.26),
+    ('ITC',         2000,    333.68),
+    ('KCP',          550,    225.29),
+    ('KEC',          200,    715.00),
+    ('LIQUIDCASE',   348,    114.63),
+    ('MOREPENLAB',  1000,     48.90),
+    ('NATIONALUM',   200,    306.65),
+    ('NCLIND',       400,    230.30),
+    ('NTPC',         135,    336.71),
+    ('ORIENTHOT',    400,    181.78),
+    ('PATELENG',    1000,     44.06),
+    ('PGEL',          60,    510.48),
+    ('PHARMABEES',  3000,     23.15),
+    ('PPLPHARMA',   1020,    215.72),
+    ('PREMIERENE',   328,    866.85),
+    ('RUSHIL',      9300,     34.64),
+    ('SAIL',         914,    121.10),
+    ('SEPC',       11000,     12.83),
+    ('SHAKTIPUMP',   595,    693.35),
+    ('SULA',         245,    512.54),
+    ('TATACHEM',      57,    867.34),
+    ('TATACONSUM',    56,   1104.00),
+    ('TATAPOWER',     88,    402.38),
+    ('TATASTEEL',    290,    169.47),
+    ('TCS',          128,   3256.97),
+    ('TITAN',          2,   4168.25),
+    ('TMCV',         291,    241.02),
+    ('TMPV',         645,    431.62),
+    ('VOLTAS',        82,   1352.62),
+    ('WAAREEENER',   280,   3183.75),
+    ('ZUARIIND',     100,    365.00),
+]
+
 BROKERS = {
     'IIFL': IIFL_HOLDINGS,
     'ANGEL': ANGEL_HOLDINGS,
     'KOTAK': KOTAK_HOLDINGS,
+    'ZERODHA': ZERODHA_HOLDINGS,
 }
 
 

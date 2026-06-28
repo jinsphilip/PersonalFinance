@@ -14,6 +14,7 @@
   <div class="section-header">
     <span class="section-title">Equity Holdings</span>
     <div class="actions">
+      <button class="btn btn-secondary" id="toggleAllBtn" onclick="toggleAll()">Collapse all</button>
       <button class="btn btn-secondary" id="refreshBtn">↻ Refresh Prices</button>
       <button class="btn btn-primary" onclick="openAdd()">+ Add Stock</button>
     </div>
@@ -64,6 +65,12 @@
 <script>
 const API = '/api/stocks';
 let rows = [];
+// Collapsed broker names persist across reloads.
+let collapsed = new Set(JSON.parse(localStorage.getItem('stockCollapsed') || '[]'));
+
+function saveCollapsed() {
+  localStorage.setItem('stockCollapsed', JSON.stringify([...collapsed]));
+}
 
 async function load() {
   rows = await apiGet(API);
@@ -79,37 +86,69 @@ async function load() {
   const wrap = document.getElementById('groups');
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; return; }
 
-  const accounts = [...new Set(rows.map(r => r.demat_account))];
+  const accounts = [...new Set(rows.map(r => r.demat_account))].sort();
   wrap.innerHTML = accounts.map(acc => {
     const items = rows.filter(r => r.demat_account === acc);
-    const accVal = items.reduce((s, r) => s + r.current_value, 0);
+    const aInv = items.reduce((s, r) => s + r.invested_value, 0);
+    const aCur = items.reduce((s, r) => s + r.current_value, 0);
+    const aPct = aInv > 0 ? (aCur - aInv) / aInv * 100 : 0;
+    const isOpen = !collapsed.has(acc);
     return `
-      <h4 style="margin:18px 0 8px;font-size:14px;color:#1a1a2e">${esc(acc)}
-        <span style="color:#9ca3af;font-weight:500"> · ${fmt(accVal)}</span></h4>
-      <div class="table-wrap"><table>
-        <thead><tr>
-          <th>Company</th><th>Ticker</th><th style="text-align:right">Qty</th>
-          <th style="text-align:right">Avg</th><th style="text-align:right">LTP</th>
-          <th style="text-align:right">Invested</th><th style="text-align:right">Current</th>
-          <th style="text-align:right">Gain/Loss</th><th></th>
-        </tr></thead>
-        <tbody>${items.map(r => `
-          <tr>
-            <td>${esc(r.company_name)}</td>
-            <td>${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span></td>
-            <td style="text-align:right">${r.quantity}</td>
-            <td style="text-align:right">${fmtNum(r.avg_price)}</td>
-            <td style="text-align:right">${fmtNum(r.current_price)}</td>
-            <td style="text-align:right">${fmt(r.invested_value)}</td>
-            <td style="text-align:right">${fmt(r.current_value)}</td>
-            <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
-            <td><div class="actions">
-              <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
-              <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
-            </div></td>
-          </tr>`).join('')}</tbody>
-      </table></div>`;
+      <div class="broker-group">
+        <div class="broker-header" onclick="toggleBroker('${esc(acc)}')">
+          <span class="broker-caret">${isOpen ? '▾' : '▸'}</span>
+          <span class="broker-name">${esc(acc)}</span>
+          <span class="broker-meta">${items.length} holding${items.length>1?'s':''}
+            · Cur ${fmt(aCur)} · ${gainPctBadge(aPct)}</span>
+        </div>
+        <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th>Company</th><th>Ticker</th><th style="text-align:right">Qty</th>
+              <th style="text-align:right">Avg</th><th style="text-align:right">LTP</th>
+              <th style="text-align:right">Invested</th><th style="text-align:right">Current</th>
+              <th style="text-align:right">Gain/Loss</th><th></th>
+            </tr></thead>
+            <tbody>${items.map(r => `
+              <tr>
+                <td>${esc(r.company_name)}</td>
+                <td>${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span></td>
+                <td style="text-align:right">${r.quantity}</td>
+                <td style="text-align:right">${fmtNum(r.avg_price)}</td>
+                <td style="text-align:right">${fmtNum(r.current_price)}</td>
+                <td style="text-align:right">${fmt(r.invested_value)}</td>
+                <td style="text-align:right">${fmt(r.current_value)}</td>
+                <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
+                <td><div class="actions">
+                  <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
+                  <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
+                </div></td>
+              </tr>`).join('')}</tbody>
+          </table></div>
+        </div>
+      </div>`;
   }).join('');
+  updateToggleAllLabel(accounts);
+}
+
+function toggleBroker(acc) {
+  if (collapsed.has(acc)) collapsed.delete(acc); else collapsed.add(acc);
+  saveCollapsed();
+  load();
+}
+
+function toggleAll() {
+  const accounts = [...new Set(rows.map(r => r.demat_account))];
+  const anyOpen = accounts.some(a => !collapsed.has(a));
+  if (anyOpen) accounts.forEach(a => collapsed.add(a));   // collapse all
+  else collapsed.clear();                                  // expand all
+  saveCollapsed();
+  load();
+}
+
+function updateToggleAllLabel(accounts) {
+  const anyOpen = accounts.some(a => !collapsed.has(a));
+  document.getElementById('toggleAllBtn').textContent = anyOpen ? 'Collapse all' : 'Expand all';
 }
 
 function openAdd() {

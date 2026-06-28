@@ -193,6 +193,18 @@ tr:hover td { background: #fafbff; }
 /* ── Transfer arrow ── */
 .transfer-arrow { color:#9ca3af; font-size:18px; }
 
+/* ── Collapsible broker groups (stocks) ── */
+.broker-group { border: 1px solid #eef0f3; border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+.broker-header {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 12px 16px; background: #f8f9fa; user-select: none; transition: background 0.15s;
+}
+.broker-header:hover { background: #f1f3f5; }
+.broker-caret { color: #6b7280; font-size: 12px; width: 14px; }
+.broker-name { font-size: 14px; font-weight: 700; color: #1a1a2e; }
+.broker-meta { margin-left: auto; font-size: 12px; color: #9ca3af; display: flex; align-items: center; gap: 6px; }
+.broker-body { padding: 4px 12px 12px; }
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .sidebar { width: 200px; }

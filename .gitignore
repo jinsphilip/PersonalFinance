@@ -7,6 +7,9 @@ env/
 
 # Database (local data — do not commit)
 finance.db
+finance.db-wal
+finance.db-shm
+instance/
 *.sqlite3
 
 # PyInstaller build artifacts

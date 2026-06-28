@@ -18,11 +18,12 @@ from models import (
 # ─── Master reference data ──────────────────────────────────────────────────
 
 ACCOUNT_TYPES = [
-    ('BANK',       'Bank Account', 'bank'),
-    ('WALLET',     'Wallet',       'wallet'),
-    ('CHIT',       'Chit Fund',    'chit'),
-    ('LOAN_ASSET', 'Loan Given',   'handshake'),
-    ('EXTERNAL',   'External',     'globe'),
+    ('BANK',       'Bank Account',   'bank'),
+    ('WALLET',     'Wallet',         'wallet'),
+    ('DEMAT',      'Demat / Trading', 'chart'),
+    ('CHIT',       'Chit Fund',      'chit'),
+    ('LOAN_ASSET', 'Loan Given',     'handshake'),
+    ('EXTERNAL',   'External',       'globe'),
 ]
 
 # (code, display_name, direction)
@@ -41,6 +42,9 @@ CATEGORIES = [
     ('EXPENSE_FUEL',          'Fuel',           'OUTFLOW'),
     ('EXPENSE_OTHER',         'Other Expense',  'OUTFLOW'),
     ('EMI',               'Loan EMI',           'OUTFLOW'),
+    ('TRADING_GAIN',      'Trading Gain',       'INFLOW'),
+    ('TRADING_LOSS',      'Trading Loss',       'OUTFLOW'),
+    ('BROKERAGE',         'Brokerage & Charges','OUTFLOW'),
     ('TRANSFER',          'Transfer',           'TRANSFER'),
     ('CHIT_INSTALLMENT',  'Chit Installment',   'TRANSFER'),
     ('CHIT_AUCTION',      'Chit Auction Payout','TRANSFER'),

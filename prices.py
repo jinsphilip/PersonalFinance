@@ -14,6 +14,8 @@ YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}'
 _HEADERS = {'User-Agent': 'Mozilla/5.0 (compatible; FinTracker/1.0)'}
 
 _EXCHANGE_SUFFIX = {'NSE': 'NS', 'BSE': 'BO'}
+# US exchanges use the bare ticker on Yahoo (no suffix).
+_US_EXCHANGES = {'NYSE', 'NASDAQ', 'NMS', 'NYQ', 'US', 'AMEX', 'ARCA'}
 
 
 def fetch_amfi_navs(timeout=20):
@@ -41,10 +43,44 @@ def fetch_amfi_navs(timeout=20):
     return navs
 
 
+def _yahoo_symbol(ticker, exchange):
+    """Map a ticker + exchange to a Yahoo symbol. US exchanges → bare ticker;
+    NSE/BSE → .NS/.BO suffix."""
+    t = ticker.strip().upper()
+    ex = (exchange or 'NSE').upper()
+    if ex in _US_EXCHANGES:
+        return t
+    suffix = _EXCHANGE_SUFFIX.get(ex, 'NS')
+    return f'{t}.{suffix}'
+
+
 def fetch_stock_price(ticker, exchange='NSE', timeout=15):
-    """Return the latest market price for a ticker, or None on failure."""
-    suffix = _EXCHANGE_SUFFIX.get((exchange or 'NSE').upper(), 'NS')
-    symbol = f'{ticker.strip().upper()}.{suffix}'
+    """Return (price, currency) for a ticker, or (None, None) on failure.
+
+    `currency` comes from Yahoo's meta (e.g. 'INR', 'USD') so the caller can
+    convert non-INR quotes to INR for portfolio totals.
+    """
+    symbol = _yahoo_symbol(ticker, exchange)
+    try:
+        resp = requests.get(
+            YAHOO_CHART_URL.format(symbol=symbol),
+            headers=_HEADERS, timeout=timeout,
+        )
+        resp.raise_for_status()
+        meta = resp.json()['chart']['result'][0]['meta']
+        price = meta.get('regularMarketPrice')
+        currency = meta.get('currency')
+        return (float(price) if price is not None else None, currency)
+    except Exception:
+        return (None, None)
+
+
+def fetch_fx_rate(base='USD', quote='INR', timeout=15):
+    """Latest FX rate: how many `quote` units per 1 `base` (e.g. USD→INR ≈ 83).
+    Returns None on failure so the caller can keep the stored rate."""
+    if (base or '').upper() == (quote or '').upper():
+        return 1.0
+    symbol = f'{base.upper()}{quote.upper()}=X'
     try:
         resp = requests.get(
             YAHOO_CHART_URL.format(symbol=symbol),

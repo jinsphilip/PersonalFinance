@@ -175,12 +175,19 @@ class Stock(db.Model):
     avg_price = db.Column(db.Float, nullable=False, default=0)
     current_price = db.Column(db.Float, nullable=False, default=0)
     sector = db.Column(db.String(100))
-    exchange = db.Column(db.String(10), default='NSE')   # NSE/BSE for live price
+    exchange = db.Column(db.String(10), default='NSE')   # NSE/BSE/NYSE/NASDAQ for live price
     last_updated = db.Column(db.String(20))              # date price was last refreshed
+    currency = db.Column(db.String(8), default='INR')    # native quote currency
+    fx_rate = db.Column(db.Float, default=1.0)           # INR per 1 unit of `currency`
 
     def to_dict(self):
-        invested = self.quantity * self.avg_price
-        current = self.quantity * self.current_price
+        # avg_price / current_price are in the native currency; portfolio totals
+        # are reported in INR using fx_rate (INR per unit currency; 1 for INR).
+        fx = self.fx_rate or 1.0
+        invested_native = self.quantity * self.avg_price
+        current_native = self.quantity * self.current_price
+        invested = invested_native * fx
+        current = current_native * fx
         gain = current - invested
         gain_pct = (gain / invested * 100) if invested > 0 else 0
         return {
@@ -189,14 +196,18 @@ class Stock(db.Model):
             'company_name': self.company_name,
             'ticker': self.ticker,
             'quantity': self.quantity,
-            'avg_price': self.avg_price,
-            'current_price': self.current_price,
+            'avg_price': self.avg_price,            # native currency
+            'current_price': self.current_price,    # native currency
             'sector': self.sector,
             'exchange': self.exchange,
             'last_updated': self.last_updated,
-            'invested_value': round(invested, 2),
-            'current_value': round(current, 2),
-            'gain_loss': round(gain, 2),
+            'currency': self.currency or 'INR',
+            'fx_rate': fx,
+            'invested_native': round(invested_native, 2),
+            'current_native': round(current_native, 2),
+            'invested_value': round(invested, 2),   # INR
+            'current_value': round(current, 2),     # INR
+            'gain_loss': round(gain, 2),            # INR
             'gain_loss_pct': round(gain_pct, 2),
         }
 

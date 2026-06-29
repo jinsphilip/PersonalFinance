@@ -291,6 +291,21 @@ def api_dashboard():
         label = t.category.display_name if t.category else t.category_code
         expense_by_category[label] = round(expense_by_category.get(label, 0) + float(t.amount), 2)
 
+    # Recurring monthly commitments: loan EMIs, active SIPs, chit contributions.
+    emi_items = [{'type': 'EMI', 'name': f"{l.lender} ({l.loan_type})",
+                  'amount': l.emi_amount, 'due': l.next_due_date}
+                 for l in Loan.query.all() if l.emi_amount]
+    sip_items = [{'type': 'SIP', 'name': f.fund_name,
+                  'amount': f._monthly_sip(), 'due': f._next_sip_date()}
+                 for f in MutualFund.query.all() if f._monthly_sip() > 0]
+    chit_items = [{'type': 'Chit', 'name': c.chit_name,
+                   'amount': c.monthly_contribution, 'due': None}
+                  for c in ChitFund.query.all()
+                  if c.monthly_contribution and c.auction_status != 'completed']
+    emi_total = round(sum(i['amount'] for i in emi_items), 2)
+    sip_total = round(sum(i['amount'] for i in sip_items), 2)
+    chit_total = round(sum(i['amount'] for i in chit_items), 2)
+
     return jsonify({
         'net_worth': round(net_worth, 2),
         'total_assets': round(total_assets, 2),
@@ -309,6 +324,12 @@ def api_dashboard():
         'recent_income': recent_income,
         'monthly_expenses': round(monthly_expenses, 2),
         'expense_by_category': expense_by_category,
+        'monthly_commitments': {
+            'emi': emi_total, 'sip': sip_total, 'chit': chit_total,
+            'total': round(emi_total + sip_total + chit_total, 2),
+            'items': sorted(emi_items + sip_items + chit_items,
+                            key=lambda i: i['amount'], reverse=True),
+        },
     })
 
 

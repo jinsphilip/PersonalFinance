@@ -26,6 +26,36 @@
     <div class="card-value red" id="monthlyExp">—</div>
     <div class="card-sub"><a href="/expenses" style="color:#4CAF50;text-decoration:none;font-size:12px;">View all →</a></div>
   </div>
+  <div class="card">
+    <div class="card-label">Monthly EMI</div>
+    <div class="card-value" id="cmEmi">—</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Monthly SIP</div>
+    <div class="card-value" id="cmSip">—</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Monthly Chit</div>
+    <div class="card-value" id="cmChit">—</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Total Monthly Outgo</div>
+    <div class="card-value red" id="cmTotal">—</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Monthly Commitments (EMI · SIP · Chit)</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Type</th><th>Name</th><th>Next Due</th><th style="text-align:right">Amount / month</th>
+      </tr></thead>
+      <tbody id="commitBody"></tbody>
+    </table>
+  </div>
 </div>
 
 <div class="charts-row">
@@ -80,6 +110,26 @@ async function loadDashboard() {
   document.getElementById('nwLiabilities').textContent = fmt(d.total_liabilities);
   document.getElementById('monthlyExp').textContent = fmt(d.monthly_expenses);
   document.getElementById('expTotal').textContent = fmt(d.monthly_expenses);
+
+  // Monthly commitments (EMI / SIP / Chit)
+  const cm = d.monthly_commitments || { emi: 0, sip: 0, chit: 0, total: 0, items: [] };
+  document.getElementById('cmEmi').textContent = fmt(cm.emi);
+  document.getElementById('cmSip').textContent = fmt(cm.sip);
+  document.getElementById('cmChit').textContent = fmt(cm.chit);
+  document.getElementById('cmTotal').textContent = fmt(cm.total);
+  const CM_BADGE = { EMI: 'badge-red', SIP: 'badge-blue', Chit: 'badge-orange' };
+  const cb = document.getElementById('commitBody');
+  if (!cm.items.length) {
+    cb.innerHTML = '<tr><td colspan="4" class="empty">No recurring commitments recorded</td></tr>';
+  } else {
+    cb.innerHTML = cm.items.map(i => `
+      <tr>
+        <td><span class="badge ${CM_BADGE[i.type] || 'badge-gray'}">${esc(i.type)}</span></td>
+        <td>${esc(i.name)}</td>
+        <td>${i.due ? fmtDate(i.due) : '—'}</td>
+        <td style="text-align:right;font-weight:600">${fmt(i.amount)}</td>
+      </tr>`).join('');
+  }
 
   // Recent income table first, so chart issues never blank the data.
   const body = document.getElementById('incomeBody');

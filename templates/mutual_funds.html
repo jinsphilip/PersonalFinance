@@ -7,6 +7,7 @@
   <div class="card"><div class="card-label">Invested</div><div class="card-value" id="mfInvested">—</div></div>
   <div class="card"><div class="card-label">Current Value</div><div class="card-value" id="mfCurrent">—</div></div>
   <div class="card"><div class="card-label">Total Gain/Loss</div><div class="card-value" id="mfGain">—</div></div>
+  <div class="card"><div class="card-label">Monthly SIP</div><div class="card-value" id="mfSip">—</div></div>
   <div class="card"><div class="card-label">Funds</div><div class="card-value" id="mfCount">—</div></div>
 </div>
 
@@ -49,6 +50,28 @@
         <div class="form-row single">
           <div class="form-group"><label>Investment Date</label><input name="investment_date" type="date"></div>
         </div>
+        <div class="form-row single">
+          <label style="font-size:13px;display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" name="is_sip" id="isSipChk" onchange="toggleSip()"> This fund is a SIP (recurring investment)
+          </label>
+        </div>
+        <div id="sipFields" style="display:none;">
+          <div class="form-row">
+            <div class="form-group"><label>SIP Amount (₹)</label><input name="sip_amount" type="number" step="any"></div>
+            <div class="form-group"><label>SIP Day (of month)</label><input name="sip_day" type="number" min="1" max="28" placeholder="e.g. 5"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Frequency</label>
+              <select name="sip_frequency"><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="weekly">Weekly</option></select>
+            </div>
+            <div class="form-group"><label>Status</label>
+              <select name="sip_status"><option value="active">Active</option><option value="paused">Paused</option><option value="stopped">Stopped</option></select>
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group"><label>SIP Start Date</label><input name="sip_start_date" type="date"></div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
@@ -79,6 +102,8 @@ async function load() {
   const gainEl = document.getElementById('mfGain');
   gainEl.textContent = fmt(cur - inv);
   gainEl.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
+  const sipTotal = rows.reduce((s, r) => s + (r.monthly_sip || 0), 0);
+  document.getElementById('mfSip').textContent = sipTotal ? fmt(sipTotal) : '—';
   document.getElementById('mfCount').textContent = rows.length;
 
   const wrap = document.getElementById('groups');
@@ -107,9 +132,17 @@ async function load() {
               <th style="text-align:right">Invested</th><th style="text-align:right">Current</th>
               <th style="text-align:right">Gain/Loss</th><th></th>
             </tr></thead>
-            <tbody>${items.map(r => `
+            <tbody>${items.map(r => {
+              let sipTag = '';
+              if (r.is_sip) {
+                const st = r.sip_status === 'active' ? 'badge-green' : 'badge-gray';
+                const freq = (r.sip_frequency || 'monthly');
+                const nxt = (r.sip_status === 'active' && r.next_sip_date) ? ` · next ${fmtDate(r.next_sip_date)}` : '';
+                sipTag = `<br><span class="badge ${st}" style="margin-top:4px">SIP ${fmt(r.sip_amount)}/${freq}${r.sip_day?` · day ${r.sip_day}`:''}</span><span style="color:#9ca3af;font-size:11px">${nxt}</span>`;
+              }
+              return `
               <tr>
-                <td>${esc(r.fund_name)}</td>
+                <td>${esc(r.fund_name)}${sipTag}</td>
                 <td style="text-align:right">${fmtNum(r.units, 3)}</td>
                 <td style="text-align:right">${fmtNum(r.avg_nav)}</td>
                 <td style="text-align:right">${fmtNum(r.current_nav)}</td>
@@ -120,7 +153,8 @@ async function load() {
                   <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
                   <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
                 </div></td>
-              </tr>`).join('')}</tbody>
+              </tr>`;
+            }).join('')}</tbody>
           </table></div>
         </div>
       </div>`;
@@ -148,9 +182,16 @@ function updateToggleAllLabel(platforms) {
   document.getElementById('toggleAllBtn').textContent = anyOpen ? 'Collapse all' : 'Expand all';
 }
 
+function toggleSip() {
+  document.getElementById('sipFields').style.display =
+    document.getElementById('isSipChk').checked ? 'block' : 'none';
+}
+
 function openAdd() {
   document.getElementById('mfForm').reset();
   document.getElementById('mfId').value = '';
+  document.getElementById('isSipChk').checked = false;
+  toggleSip();
   document.getElementById('modalTitle').textContent = 'Add Fund';
   openModal('formModal');
 }
@@ -158,6 +199,8 @@ function openEdit(id) {
   const r = rows.find(x => x.id === id);
   document.getElementById('mfForm').reset();
   fillForm('mfForm', r);
+  document.getElementById('isSipChk').checked = !!r.is_sip;
+  toggleSip();
   document.getElementById('modalTitle').textContent = 'Edit Fund';
   openModal('formModal');
 }

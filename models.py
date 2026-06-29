@@ -141,6 +141,41 @@ class MutualFund(db.Model):
     investment_date = db.Column(db.String(20))
     scheme_code = db.Column(db.String(20))      # AMFI scheme code for live NAV
     last_updated = db.Column(db.String(20))     # date NAV was last refreshed
+    # SIP (recurring investment) metadata — informational, no auto-debit.
+    is_sip = db.Column(db.Boolean, default=False)
+    sip_amount = db.Column(db.Float, default=0)
+    sip_day = db.Column(db.Integer)             # day of month, 1-28
+    sip_frequency = db.Column(db.String(15), default='monthly')  # monthly/quarterly/weekly
+    sip_start_date = db.Column(db.String(20))
+    sip_status = db.Column(db.String(15), default='active')      # active/paused/stopped
+
+    def _next_sip_date(self):
+        """Next SIP occurrence from sip_day relative to today (active SIPs only)."""
+        if not self.is_sip or (self.sip_status or 'active') != 'active' or not self.sip_day:
+            return None
+        from datetime import date as _date
+        import calendar
+        today = _date.today()
+        day = max(1, min(int(self.sip_day), 28))
+        y, m = today.year, today.month
+        if today.day > day:                     # this month's date passed → next month
+            m += 1
+            if m > 12:
+                m = 1; y += 1
+        last = calendar.monthrange(y, m)[1]
+        return _date(y, m, min(day, last)).isoformat()
+
+    def _monthly_sip(self):
+        """SIP amount normalised to a monthly figure (for commitment totals)."""
+        if not self.is_sip or (self.sip_status or 'active') != 'active':
+            return 0.0
+        amt = self.sip_amount or 0
+        freq = (self.sip_frequency or 'monthly').lower()
+        if freq == 'quarterly':
+            return amt / 3
+        if freq == 'weekly':
+            return amt * 52 / 12
+        return amt
 
     def to_dict(self):
         invested = self.units * self.avg_nav
@@ -162,6 +197,14 @@ class MutualFund(db.Model):
             'current_value': round(current, 2),
             'gain_loss': round(gain, 2),
             'gain_loss_pct': round(gain_pct, 2),
+            'is_sip': bool(self.is_sip),
+            'sip_amount': self.sip_amount or 0,
+            'sip_day': self.sip_day,
+            'sip_frequency': self.sip_frequency or 'monthly',
+            'sip_start_date': self.sip_start_date,
+            'sip_status': self.sip_status or 'active',
+            'next_sip_date': self._next_sip_date(),
+            'monthly_sip': round(self._monthly_sip(), 2),
         }
 
 

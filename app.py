@@ -79,6 +79,11 @@ def ensure_legacy_columns():
         'credits': [('account_id', 'INTEGER')],
         'chit_funds': [('account_id', 'INTEGER')],
         'stocks': [('currency', "VARCHAR(8) DEFAULT 'INR'"), ('fx_rate', 'FLOAT DEFAULT 1.0')],
+        'mutual_funds': [
+            ('is_sip', 'BOOLEAN DEFAULT 0'), ('sip_amount', 'FLOAT DEFAULT 0'),
+            ('sip_day', 'INTEGER'), ('sip_frequency', "VARCHAR(15) DEFAULT 'monthly'"),
+            ('sip_start_date', 'VARCHAR(20)'), ('sip_status', "VARCHAR(15) DEFAULT 'active'"),
+        ],
         'bank_accounts': [('account_subtype', "VARCHAR(20) DEFAULT 'bank'")],
         'expenses': [('account_name', 'VARCHAR(100)')],
         'transfers': [('from_account_name', 'VARCHAR(100)'),
@@ -426,6 +431,18 @@ def api_transaction(id):
 
 # ─── Mutual Funds ──────────────────────────────────────────────────────────────
 
+def _apply_sip_fields(mf, data):
+    """Persist SIP metadata from a request body onto a MutualFund."""
+    is_sip = data.get('is_sip')
+    mf.is_sip = is_sip in (True, 'true', 'on', 1, '1') if is_sip is not None else bool(mf.is_sip)
+    if mf.is_sip:
+        mf.sip_amount = float(data.get('sip_amount') or mf.sip_amount or 0)
+        mf.sip_day = int(data['sip_day']) if data.get('sip_day') else mf.sip_day
+        mf.sip_frequency = data.get('sip_frequency') or mf.sip_frequency or 'monthly'
+        mf.sip_start_date = data.get('sip_start_date', mf.sip_start_date)
+        mf.sip_status = data.get('sip_status') or mf.sip_status or 'active'
+
+
 @app.route('/api/mutual-funds', methods=['GET', 'POST'])
 def api_mutual_funds():
     if request.method == 'GET':
@@ -438,6 +455,7 @@ def api_mutual_funds():
         investment_date=data.get('investment_date', ''), scheme_code=data.get('scheme_code', ''),
         last_updated=data.get('last_updated', ''),
     )
+    _apply_sip_fields(mf, data)
     db.session.add(mf)
     db.session.commit()
     return jsonify(mf.to_dict()), 201
@@ -459,6 +477,7 @@ def api_mutual_fund(id):
     mf.current_nav = float(data.get('current_nav', mf.current_nav))
     mf.investment_date = data.get('investment_date', mf.investment_date)
     mf.scheme_code = data.get('scheme_code', mf.scheme_code)
+    _apply_sip_fields(mf, data)
     db.session.commit()
     return jsonify(mf.to_dict())
 

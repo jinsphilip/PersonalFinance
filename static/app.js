@@ -111,10 +111,15 @@ async function apiUpload(url, file, fields = {}) {
 }
 
 // Collects a form's named fields into a plain object.
+// Checkboxes are reported as booleans by their checked state (FormData would
+// otherwise omit unchecked ones and emit the raw value attribute for checked).
 function formToObject(formId) {
   const form = document.getElementById(formId);
   const data = {};
   new FormData(form).forEach((v, k) => { data[k] = v; });
+  Array.from(form.elements).forEach(el => {
+    if (el.name && el.type === 'checkbox') data[el.name] = el.checked;
+  });
   return data;
 }
 
@@ -123,7 +128,12 @@ function fillForm(formId, obj) {
   const form = document.getElementById(formId);
   if (!form) return;
   Array.from(form.elements).forEach(el => {
-    if (el.name && obj[el.name] !== undefined && obj[el.name] !== null) {
+    if (!el.name) return;
+    if (el.type === 'checkbox') {            // set checked state, never .value
+      el.checked = !!obj[el.name];
+      return;
+    }
+    if (obj[el.name] !== undefined && obj[el.name] !== null) {
       el.value = obj[el.name];
     }
   });

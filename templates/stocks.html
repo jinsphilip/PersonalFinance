@@ -77,12 +77,15 @@
 <script>
 const API = '/api/stocks';
 let rows = [];
-// Collapsed broker names persist across reloads.
+// Collapsed + summary-excluded broker names persist across reloads.
 let collapsed = new Set(JSON.parse(localStorage.getItem('stockCollapsed') || '[]'));
+let excluded = new Set(JSON.parse(localStorage.getItem('stockExcluded') || '[]'));
+// Sort state for the holdings grids.
+let sortKey = localStorage.getItem('stockSortKey') || 'current_value';
+let sortDir = localStorage.getItem('stockSortDir') || 'desc';
 
-function saveCollapsed() {
-  localStorage.setItem('stockCollapsed', JSON.stringify([...collapsed]));
-}
+function saveCollapsed() { localStorage.setItem('stockCollapsed', JSON.stringify([...collapsed])); }
+function saveExcluded() { localStorage.setItem('stockExcluded', JSON.stringify([...excluded])); }
 
 // Native-currency symbol prefix for price columns.
 function ccy(c) { return c === 'USD' ? '$' : (c && c !== 'INR' ? '' : '₹'); }
@@ -93,43 +96,83 @@ function onExchangeChange(ex) {
   if (sel) sel.value = (ex === 'NYSE' || ex === 'NASDAQ') ? 'USD' : 'INR';
 }
 
+// Sortable column definitions (label + field + numeric flag + alignment).
+const COLS = [
+  { key: 'company_name', label: 'Company', num: false, align: 'left' },
+  { key: 'ticker', label: 'Ticker', num: false, align: 'left' },
+  { key: 'quantity', label: 'Qty', num: true, align: 'right' },
+  { key: 'avg_price', label: 'Avg', num: true, align: 'right' },
+  { key: 'current_price', label: 'LTP', num: true, align: 'right' },
+  { key: 'invested_value', label: 'Invested', num: true, align: 'right' },
+  { key: 'current_value', label: 'Current', num: true, align: 'right' },
+  { key: 'gain_loss_pct', label: 'Gain/Loss', num: true, align: 'right' },
+];
+
+function sortBy(key) {
+  if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  else { sortKey = key; sortDir = 'desc'; }
+  localStorage.setItem('stockSortKey', sortKey);
+  localStorage.setItem('stockSortDir', sortDir);
+  load();
+}
+
+function sortItems(items) {
+  const col = COLS.find(c => c.key === sortKey) || COLS[6];
+  const dir = sortDir === 'asc' ? 1 : -1;
+  return [...items].sort((a, b) => {
+    let x = a[sortKey], y = b[sortKey];
+    if (col.num) { x = Number(x) || 0; y = Number(y) || 0; return (x - y) * dir; }
+    return String(x).localeCompare(String(y)) * dir;
+  });
+}
+
+function headerRow() {
+  const cells = COLS.map(c => {
+    const arrow = sortKey === c.key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th style="text-align:${c.align};cursor:pointer;user-select:none" onclick="sortBy('${c.key}')">${c.label}${arrow}</th>`;
+  }).join('');
+  return `<tr>${cells}<th></th></tr>`;
+}
+
 async function load() {
   rows = await apiGet(API);
+
+  // Summary reflects only brokers that are *checked* (not excluded).
+  const included = rows.filter(r => !excluded.has(r.demat_account));
   let inv = 0, cur = 0;
-  rows.forEach(r => { inv += r.invested_value; cur += r.current_value; });
+  included.forEach(r => { inv += r.invested_value; cur += r.current_value; });
   document.getElementById('sInvested').textContent = fmt(inv);
   document.getElementById('sCurrent').textContent = fmt(cur);
   const g = document.getElementById('sGain');
   g.textContent = fmt(cur - inv);
   g.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
-  document.getElementById('sCount').textContent = rows.length;
+  document.getElementById('sCount').textContent = included.length;
 
   const wrap = document.getElementById('groups');
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; return; }
 
   const accounts = [...new Set(rows.map(r => r.demat_account))].sort();
   wrap.innerHTML = accounts.map(acc => {
-    const items = rows.filter(r => r.demat_account === acc);
+    const items = sortItems(rows.filter(r => r.demat_account === acc));
     const aInv = items.reduce((s, r) => s + r.invested_value, 0);
     const aCur = items.reduce((s, r) => s + r.current_value, 0);
     const aPct = aInv > 0 ? (aCur - aInv) / aInv * 100 : 0;
     const isOpen = !collapsed.has(acc);
+    const isIncluded = !excluded.has(acc);
     return `
-      <div class="broker-group">
+      <div class="broker-group${isIncluded ? '' : ' broker-excluded'}">
         <div class="broker-header" onclick="toggleBroker('${esc(acc)}')">
+          <input type="checkbox" title="Include in summary" ${isIncluded ? 'checked' : ''}
+                 onclick="event.stopPropagation(); toggleInclude('${esc(acc)}')"
+                 style="cursor:pointer;width:15px;height:15px;">
           <span class="broker-caret">${isOpen ? '▾' : '▸'}</span>
           <span class="broker-name">${esc(acc)}</span>
           <span class="broker-meta">${items.length} holding${items.length>1?'s':''}
-            · Cur ${fmt(aCur)} · ${gainPctBadge(aPct)}</span>
+            · Cur ${fmt(aCur)} · ${gainPctBadge(aPct)}${isIncluded ? '' : ' · <span style="color:#9ca3af">excluded</span>'}</span>
         </div>
         <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
           <div class="table-wrap"><table>
-            <thead><tr>
-              <th>Company</th><th>Ticker</th><th style="text-align:right">Qty</th>
-              <th style="text-align:right">Avg</th><th style="text-align:right">LTP</th>
-              <th style="text-align:right">Invested</th><th style="text-align:right">Current</th>
-              <th style="text-align:right">Gain/Loss</th><th></th>
-            </tr></thead>
+            <thead>${headerRow()}</thead>
             <tbody>${items.map(r => `
               <tr>
                 <td>${esc(r.company_name)}</td>
@@ -155,6 +198,12 @@ async function load() {
 function toggleBroker(acc) {
   if (collapsed.has(acc)) collapsed.delete(acc); else collapsed.add(acc);
   saveCollapsed();
+  load();
+}
+
+function toggleInclude(acc) {
+  if (excluded.has(acc)) excluded.delete(acc); else excluded.add(acc);
+  saveExcluded();
   load();
 }
 

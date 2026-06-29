@@ -214,7 +214,10 @@ async function saveForm(e) {
     closeModal('formModal');
     showToast('Saved');
     load();
-  } catch { showToast('Save failed', 'error'); }
+  } catch (err) {
+    // Surface the real reason (e.g. a stale server missing the SIP columns).
+    showToast('Save failed: ' + (err && err.message ? err.message.slice(0, 120) : 'unknown'), 'error');
+  }
   return false;
 }
 function del(id) {

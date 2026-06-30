@@ -14,6 +14,25 @@ def _money(value):
     return float(value) if value is not None else 0.0
 
 
+class NetWorthSnapshot(db.Model):
+    """One row per calendar day capturing net worth, so the dashboard can plot a
+    trend. Upserted whenever the dashboard is loaded (latest value for the day)."""
+    __tablename__ = 'networth_snapshots'
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.String(20), unique=True, nullable=False)   # YYYY-MM-DD
+    net_worth = db.Column(db.Float, nullable=False, default=0)
+    total_assets = db.Column(db.Float, nullable=False, default=0)
+    total_liabilities = db.Column(db.Float, nullable=False, default=0)
+
+    def to_dict(self):
+        return {
+            'date': self.date,
+            'net_worth': round(self.net_worth, 2),
+            'total_assets': round(self.total_assets, 2),
+            'total_liabilities': round(self.total_liabilities, 2),
+        }
+
+
 class AccountTypeMaster(db.Model):
     __tablename__ = 'account_types_master'
     code = db.Column(db.String(30), primary_key=True)      # BANK, WALLET, CHIT, LOAN_ASSET, EXTERNAL

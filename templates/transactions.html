@@ -46,7 +46,7 @@
         <input type="hidden" name="id" id="txId">
         <div class="form-row">
           <div class="form-group"><label>Date</label><input name="transaction_date" type="date" required></div>
-          <div class="form-group"><label>Amount (₹)</label><input name="amount" type="number" step="any" min="0.01" required></div>
+          <div class="form-group"><label>Amount (₹)</label><input name="amount" type="number" step="any" min="0.01" oninput="updateMfUnits()" required></div>
         </div>
         <div class="form-row single">
           <div class="form-group"><label>Category</label>
@@ -61,6 +61,16 @@
             <select name="to_account_id" id="toSel"></select>
           </div>
         </div>
+        <!-- Shown only for Mutual Fund Investment: pick a SIP fund + NAV -->
+        <div class="form-row" id="mfRow" style="display:none;">
+          <div class="form-group"><label>Mutual Fund (SIP)</label>
+            <select id="mfSel" onchange="onMfChange()"></select>
+          </div>
+          <div class="form-group"><label>NAV (₹)</label>
+            <input id="mfNav" type="number" step="any" min="0.0001" oninput="updateMfUnits()">
+          </div>
+        </div>
+        <p id="mfUnits" style="font-size:12px;color:#9ca3af;display:none;"></p>
         <div class="form-row single">
           <div class="form-group"><label>Description</label><input name="description" placeholder="Optional note"></div>
         </div>
@@ -78,13 +88,13 @@
 {% block scripts %}
 <script>
 const API = '/api/transactions';
-let allRows = [], accounts = [], categories = [], catByCode = {};
+let allRows = [], accounts = [], categories = [], catByCode = {}, funds = [];
 
 const DIR_BADGE = { INFLOW: 'badge-green', OUTFLOW: 'badge-red', TRANSFER: 'badge-blue' };
 
 async function load() {
-  [allRows, accounts, categories] = await Promise.all([
-    apiGet(API), apiGet('/api/accounts'), apiGet('/api/categories'),
+  [allRows, accounts, categories, funds] = await Promise.all([
+    apiGet(API), apiGet('/api/accounts'), apiGet('/api/categories'), apiGet('/api/mutual-funds'),
   ]);
   catByCode = Object.fromEntries(categories.map(c => [c.code, c]));
 
@@ -146,8 +156,38 @@ function fillCategories() {
 function onCatChange() {
   const code = document.getElementById('catSel').value;
   const dir = (catByCode[code] || {}).direction;
+  const isMf = code === 'MF_INVESTMENT';
   document.getElementById('fromGroup').style.display = (dir === 'INFLOW') ? 'none' : 'flex';
-  document.getElementById('toGroup').style.display   = (dir === 'OUTFLOW') ? 'none' : 'flex';
+  document.getElementById('toGroup').style.display   = (dir === 'OUTFLOW' || isMf) ? 'none' : 'flex';
+  // MF Investment: reveal the fund + NAV pickers (buys units in that fund).
+  document.getElementById('mfRow').style.display = isMf ? 'flex' : 'none';
+  if (isMf) {
+    const sel = document.getElementById('mfSel');
+    const sipFirst = [...funds].sort((a, b) => (b.is_sip ? 1 : 0) - (a.is_sip ? 1 : 0));
+    sel.innerHTML = sipFirst.map(f =>
+      `<option value="${f.id}">${esc(f.fund_name)}${f.is_sip ? ' · SIP' : ''}</option>`).join('');
+    onMfChange();
+  } else {
+    document.getElementById('mfUnits').style.display = 'none';
+  }
+}
+
+// When a fund is chosen, prefill NAV (current) and SIP amount.
+function onMfChange() {
+  const f = funds.find(x => x.id == document.getElementById('mfSel').value);
+  if (!f) return;
+  document.getElementById('mfNav').value = f.current_nav || '';
+  const amtEl = document.querySelector('#txForm [name="amount"]');
+  if (!amtEl.value && f.is_sip && f.sip_amount) amtEl.value = f.sip_amount;
+  if (f.is_sip && f.sip_account_id) document.getElementById('fromSel').value = f.sip_account_id;
+  updateMfUnits();
+}
+function updateMfUnits() {
+  const amt = parseFloat(document.querySelector('#txForm [name="amount"]').value);
+  const nav = parseFloat(document.getElementById('mfNav').value);
+  const el = document.getElementById('mfUnits');
+  if (amt > 0 && nav > 0) { el.textContent = `≈ ${fmtNum(amt / nav, 3)} units bought at this NAV`; el.style.display = 'block'; }
+  else el.style.display = 'none';
 }
 
 function openAdd() {
@@ -181,9 +221,32 @@ function openEdit(id) {
 async function saveForm(e) {
   e.preventDefault();
   const data = formToObject('txForm');
+  const err = document.getElementById('formErr');
   const dir = (catByCode[data.category_code] || {}).direction;
+
+  // Mutual Fund Investment: buy units in the selected fund from a bank account.
+  if (data.category_code === 'MF_INVESTMENT') {
+    const fundId = document.getElementById('mfSel').value;
+    const nav = document.getElementById('mfNav').value;
+    if (!data.from_account_id || !fundId || !(parseFloat(nav) > 0)) {
+      err.textContent = 'Pick a from-account, a fund, and a valid NAV.'; err.style.display = 'block';
+      return false;
+    }
+    if (data.id) {
+      err.textContent = 'Edit fund investments from the Mutual Funds page.'; err.style.display = 'block';
+      return false;
+    }
+    try {
+      await apiSend(`/api/mutual-funds/${fundId}/invest`, 'POST', {
+        account_id: data.from_account_id, amount: data.amount, nav: nav,
+        date: data.transaction_date,
+      });
+      closeModal('formModal'); showToast('SIP investment recorded'); await load();
+    } catch (ex) { showToast('Failed: ' + (ex.message || '').slice(0, 100), 'error'); }
+    return false;
+  }
+
   if (dir === 'TRANSFER' && data.from_account_id === data.to_account_id) {
-    const err = document.getElementById('formErr');
     err.textContent = 'From and To accounts must be different.'; err.style.display = 'block';
     return false;
   }

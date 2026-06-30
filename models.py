@@ -148,6 +148,7 @@ class MutualFund(db.Model):
     sip_frequency = db.Column(db.String(15), default='monthly')  # monthly/quarterly/weekly
     sip_start_date = db.Column(db.String(20))
     sip_status = db.Column(db.String(15), default='active')      # active/paused/stopped
+    sip_account_id = db.Column(db.Integer)                       # default source bank for SIP
 
     def _next_sip_date(self):
         """Next SIP occurrence from sip_day relative to today (active SIPs only)."""
@@ -203,6 +204,7 @@ class MutualFund(db.Model):
             'sip_frequency': self.sip_frequency or 'monthly',
             'sip_start_date': self.sip_start_date,
             'sip_status': self.sip_status or 'active',
+            'sip_account_id': self.sip_account_id,
             'next_sip_date': self._next_sip_date(),
             'monthly_sip': round(self._monthly_sip(), 2),
         }

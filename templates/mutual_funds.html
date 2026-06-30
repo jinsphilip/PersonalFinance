@@ -68,8 +68,11 @@
               <select name="sip_status"><option value="active">Active</option><option value="paused">Paused</option><option value="stopped">Stopped</option></select>
             </div>
           </div>
-          <div class="form-row single">
+          <div class="form-row">
             <div class="form-group"><label>SIP Start Date</label><input name="sip_start_date" type="date"></div>
+            <div class="form-group"><label>Source Bank</label>
+              <select name="sip_account_id" id="sipAccountSel"><option value="">—</option></select>
+            </div>
           </div>
         </div>
       </div>
@@ -80,12 +83,44 @@
     </form>
   </div>
 </div>
+
+<!-- Invest (SIP / lump-sum) Modal -->
+<div class="modal-overlay" id="investModal" style="display:none;">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>Invest in Fund</h3>
+      <button class="modal-close" onclick="closeModal('investModal')">&times;</button>
+    </div>
+    <form id="investForm" onsubmit="return saveInvest(event)">
+      <div class="modal-body">
+        <input type="hidden" id="investFundId">
+        <p id="investFundName" style="font-size:13px;color:#6b7280;margin-bottom:12px;"></p>
+        <div class="form-row single">
+          <div class="form-group"><label>From Bank Account</label><select id="investAccount"></select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Amount (₹)</label><input id="investAmount" type="number" step="any" min="0.01" oninput="updateInvestUnits()" required></div>
+          <div class="form-group"><label>NAV (₹)</label><input id="investNav" type="number" step="any" min="0.0001" oninput="updateInvestUnits()" required></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Date</label><input id="investDate" type="date" required></div>
+        </div>
+        <p id="investUnits" style="font-size:12px;color:#9ca3af;"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('investModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Invest</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const API = '/api/mutual-funds';
 let rows = [];
+let bankAccounts = [];
 // Collapsed platforms persist across reloads.
 let collapsed = new Set(JSON.parse(localStorage.getItem('mfCollapsed') || '[]'));
 
@@ -94,7 +129,8 @@ function saveCollapsed() {
 }
 
 async function load() {
-  rows = await apiGet(API);
+  [rows, bankAccounts] = await Promise.all([apiGet(API), apiGet('/api/accounts')]);
+  bankAccounts = bankAccounts.filter(a => ['BANK', 'WALLET'].includes(a.account_type_code));
   let inv = 0, cur = 0;
   rows.forEach(r => { inv += r.invested_value; cur += r.current_value; });
   document.getElementById('mfInvested').textContent = fmt(inv);
@@ -150,6 +186,7 @@ async function load() {
                 <td style="text-align:right">${fmt(r.current_value)}</td>
                 <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
                 <td><div class="actions">
+                  <button class="btn-icon" title="Invest from bank" onclick='openInvest(${r.id})'>&#8377;</button>
                   <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
                   <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
                 </div></td>
@@ -187,10 +224,16 @@ function toggleSip() {
     document.getElementById('isSipChk').checked ? 'block' : 'none';
 }
 
+function bankOptions(selectedId) {
+  return '<option value="">—</option>' + bankAccounts.map(a =>
+    `<option value="${a.id}" ${a.id == selectedId ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
+}
+
 function openAdd() {
   document.getElementById('mfForm').reset();
   document.getElementById('mfId').value = '';
   document.getElementById('isSipChk').checked = false;
+  document.getElementById('sipAccountSel').innerHTML = bankOptions(null);
   toggleSip();
   document.getElementById('modalTitle').textContent = 'Add Fund';
   openModal('formModal');
@@ -198,11 +241,48 @@ function openAdd() {
 function openEdit(id) {
   const r = rows.find(x => x.id === id);
   document.getElementById('mfForm').reset();
+  document.getElementById('sipAccountSel').innerHTML = bankOptions(r.sip_account_id);
   fillForm('mfForm', r);
   document.getElementById('isSipChk').checked = !!r.is_sip;
   toggleSip();
   document.getElementById('modalTitle').textContent = 'Edit Fund';
   openModal('formModal');
+}
+
+function openInvest(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('investFundId').value = id;
+  document.getElementById('investFundName').textContent = r.fund_name;
+  document.getElementById('investAccount').innerHTML =
+    bankAccounts.map(a => `<option value="${a.id}" ${a.id == r.sip_account_id ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
+  document.getElementById('investAmount').value = r.is_sip && r.sip_amount ? r.sip_amount : '';
+  document.getElementById('investNav').value = r.current_nav || '';
+  document.getElementById('investDate').value = new Date().toISOString().slice(0, 10);
+  updateInvestUnits();
+  openModal('investModal');
+}
+function updateInvestUnits() {
+  const amt = parseFloat(document.getElementById('investAmount').value);
+  const nav = parseFloat(document.getElementById('investNav').value);
+  const el = document.getElementById('investUnits');
+  el.textContent = (amt > 0 && nav > 0) ? `≈ ${fmtNum(amt / nav, 3)} units at this NAV` : '';
+}
+async function saveInvest(e) {
+  e.preventDefault();
+  const id = document.getElementById('investFundId').value;
+  const body = {
+    account_id: document.getElementById('investAccount').value,
+    amount: document.getElementById('investAmount').value,
+    nav: document.getElementById('investNav').value,
+    date: document.getElementById('investDate').value,
+  };
+  try {
+    await apiSend(`${API}/${id}/invest`, 'POST', body);
+    closeModal('investModal'); showToast('Investment recorded'); load();
+  } catch (err) {
+    showToast('Invest failed: ' + (err && err.message ? err.message.slice(0, 120) : 'unknown'), 'error');
+  }
+  return false;
 }
 async function saveForm(e) {
   e.preventDefault();

@@ -83,6 +83,7 @@ def ensure_legacy_columns():
             ('is_sip', 'BOOLEAN DEFAULT 0'), ('sip_amount', 'FLOAT DEFAULT 0'),
             ('sip_day', 'INTEGER'), ('sip_frequency', "VARCHAR(15) DEFAULT 'monthly'"),
             ('sip_start_date', 'VARCHAR(20)'), ('sip_status', "VARCHAR(15) DEFAULT 'active'"),
+            ('sip_account_id', 'INTEGER'),
         ],
         'bank_accounts': [('account_subtype', "VARCHAR(20) DEFAULT 'bank'")],
         'expenses': [('account_name', 'VARCHAR(100)')],
@@ -462,6 +463,8 @@ def _apply_sip_fields(mf, data):
         mf.sip_frequency = data.get('sip_frequency') or mf.sip_frequency or 'monthly'
         mf.sip_start_date = data.get('sip_start_date', mf.sip_start_date)
         mf.sip_status = data.get('sip_status') or mf.sip_status or 'active'
+        if data.get('sip_account_id'):
+            mf.sip_account_id = int(data['sip_account_id'])
 
 
 @app.route('/api/mutual-funds', methods=['GET', 'POST'])
@@ -501,6 +504,34 @@ def api_mutual_fund(id):
     _apply_sip_fields(mf, data)
     db.session.commit()
     return jsonify(mf.to_dict())
+
+
+@app.route('/api/mutual-funds/<int:id>/invest', methods=['POST'])
+def api_mutual_fund_invest(id):
+    """Invest money from a bank account into this fund (SIP installment or lump
+    sum): debit the bank, buy units at NAV, update the fund's units + avg NAV."""
+    mf = MutualFund.query.get_or_404(id)
+    data = request.json
+    acct = Account.query.get_or_404(int(data['account_id']))
+    amount = float(data['amount'])
+    nav = float(data.get('nav') or mf.current_nav or 0)
+    if amount <= 0 or nav <= 0:
+        return jsonify({'error': 'amount and NAV must be positive'}), 400
+
+    units_bought = amount / nav
+    new_invested = mf.units * mf.avg_nav + amount
+    mf.units = mf.units + units_bought
+    mf.avg_nav = new_invested / mf.units if mf.units else nav
+
+    services.post_transaction(
+        from_account_id=acct.id, to_account_id=None, amount=amount,
+        category_code='MF_INVESTMENT',
+        transaction_date=data.get('date') or date.today().isoformat(),
+        description=f'Invest · {mf.fund_name}', commit=False,
+    )
+    db.session.commit()
+    return jsonify({'fund': mf.to_dict(),
+                    'account': db.session.get(Account, acct.id).to_dict()}), 201
 
 
 # ─── Stocks ────────────────────────────────────────────────────────────────────

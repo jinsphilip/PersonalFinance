@@ -4,7 +4,7 @@ from datetime import date
 from app import app
 from models import (
     db, MutualFund, Stock, Loan, ChitFund, FixedDeposit, CreditGiven,
-    Account, Transaction,
+    Account, Transaction, NetWorthSnapshot,
 )
 import services
 
@@ -160,6 +160,17 @@ with app.app_context():
     services.post_transaction(from_account_id=hdfc.id, to_account_id=sbi.id, amount=10000.00,
                               category_code='TRANSFER', transaction_date='2026-06-12',
                               description='Transfer to SBI for EMI', commit=False)
+
+    # ── Net-worth history (demo trend; real installs accrue daily) ─────────────
+    import datetime
+    base = -3050000.0   # roughly current net worth; trend climbs toward today
+    today = datetime.date.today()
+    for i in range(6, 0, -1):
+        d = (today.replace(day=1) - datetime.timedelta(days=30 * i)).isoformat()
+        nw = base + (6 - i) * 18000
+        db.session.add(NetWorthSnapshot(date=d, net_worth=round(nw, 2),
+                                        total_assets=round(nw + 4130000, 2),
+                                        total_liabilities=4130000))
 
     db.session.commit()
     print("Database initialised with sample data successfully!")

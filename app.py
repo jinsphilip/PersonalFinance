@@ -8,6 +8,7 @@ from models import (
     db, MutualFund, Stock, BankAccount, Loan, ChitFund, FixedDeposit,
     CreditGiven, Income, Expense, Transfer,
     Account, Transaction, AccountTypeMaster, TransactionCategoryMaster, StagedTransaction,
+    NetWorthSnapshot,
 )
 import prices
 import services
@@ -307,6 +308,17 @@ def api_dashboard():
     sip_total = round(sum(i['amount'] for i in sip_items), 2)
     chit_total = round(sum(i['amount'] for i in chit_items), 2)
 
+    # Capture / refresh today's net-worth snapshot for the trend chart.
+    today_str = date.today().isoformat()
+    snap = NetWorthSnapshot.query.filter_by(date=today_str).first()
+    if not snap:
+        snap = NetWorthSnapshot(date=today_str)
+        db.session.add(snap)
+    snap.net_worth = round(net_worth, 2)
+    snap.total_assets = round(total_assets, 2)
+    snap.total_liabilities = round(total_liabilities, 2)
+    db.session.commit()
+
     return jsonify({
         'net_worth': round(net_worth, 2),
         'total_assets': round(total_assets, 2),
@@ -332,6 +344,13 @@ def api_dashboard():
                             key=lambda i: i['amount'], reverse=True),
         },
     })
+
+
+@app.route('/api/networth-history')
+def api_networth_history():
+    """Daily net-worth snapshots for the trend chart, oldest first."""
+    snaps = NetWorthSnapshot.query.order_by(NetWorthSnapshot.date).all()
+    return jsonify([s.to_dict() for s in snaps])
 
 
 # ─── Accounts (unified ledger accounts) ─────────────────────────────────────────

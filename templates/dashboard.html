@@ -20,6 +20,11 @@
   </div>
 </div>
 
+<div class="chart-box" style="margin-bottom:24px;">
+  <div class="chart-title">Net Worth Trend</div>
+  <canvas id="networthChart"></canvas>
+</div>
+
 <div class="cards-row" style="margin-bottom:24px;">
   <div class="card">
     <div class="card-label">This Month Expenses</div>
@@ -101,7 +106,7 @@
 
 {% block scripts %}
 <script>
-let allocationChart, balanceChart, expenseChart;
+let allocationChart, balanceChart, expenseChart, networthChart;
 
 async function loadDashboard() {
   const d = await apiGet('/api/dashboard');
@@ -148,6 +153,30 @@ async function loadDashboard() {
   }
 
   if (typeof Chart === 'undefined') return;  // charting lib unavailable; data already shown
+
+  // Net worth trend (fetched separately so a failure can't blank the dashboard).
+  try {
+    const hist = await apiGet('/api/networth-history');
+    if (networthChart) networthChart.destroy();
+    if (hist.length) {
+      networthChart = new Chart(document.getElementById('networthChart'), {
+        type: 'line',
+        data: {
+          labels: hist.map(h => fmtDate(h.date)),
+          datasets: [{
+            label: 'Net Worth', data: hist.map(h => h.net_worth),
+            borderColor: '#4CAF50', backgroundColor: 'rgba(76,175,80,0.12)',
+            fill: true, tension: 0.3, pointRadius: hist.length > 30 ? 0 : 3,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.raw)}` } } },
+          scales: { y: { ticks: { callback: v => '₹' + (v / 100000).toFixed(1) + 'L' } } },
+        },
+      });
+    }
+  } catch (e) { /* history optional */ }
 
   const labels = Object.keys(d.breakdown).filter(k => d.breakdown[k] > 0);
   const values = labels.map(k => d.breakdown[k]);

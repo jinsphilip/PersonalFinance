@@ -61,16 +61,49 @@
             <select name="to_account_id" id="toSel"></select>
           </div>
         </div>
-        <!-- Shown only for Mutual Fund Investment: pick a SIP fund + NAV -->
+        <!-- Shown only for Mutual Fund Investment: pick a fund (or add new) + NAV -->
         <div class="form-row" id="mfRow" style="display:none;">
-          <div class="form-group"><label>Mutual Fund (SIP)</label>
+          <div class="form-group"><label>Mutual Fund</label>
             <select id="mfSel" onchange="onMfChange()"></select>
           </div>
           <div class="form-group"><label>NAV (₹)</label>
             <input id="mfNav" type="number" step="any" min="0.0001" oninput="updateMfUnits()">
           </div>
         </div>
+        <div id="newFundRow" style="display:none;">
+          <div class="form-row">
+            <div class="form-group"><label>Platform</label><input id="newFundPlatform" placeholder="Groww / Zerodha Coin"></div>
+            <div class="form-group"><label>Fund Name</label><input id="newFundName" placeholder="Fund name"></div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group"><label>AMFI Scheme Code (optional)</label><input id="newFundScheme" placeholder="for live NAV"></div>
+          </div>
+        </div>
         <p id="mfUnits" style="font-size:12px;color:#9ca3af;display:none;"></p>
+
+        <!-- Shown only for Stock Purchase: demat + scrip + qty/price -->
+        <div id="stockRows" style="display:none;">
+          <div class="form-row">
+            <div class="form-group"><label>Demat / Broker</label>
+              <input id="stkDemat" list="dematList" placeholder="Zerodha / ANGEL / …">
+              <datalist id="dematList"></datalist>
+            </div>
+            <div class="form-group"><label>Ticker</label><input id="stkTicker" placeholder="TCS" oninput="onStockInput()"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Exchange</label>
+              <select id="stkExchange" onchange="onStockInput()"><option>NSE</option><option>BSE</option><option>NYSE</option><option>NASDAQ</option></select>
+            </div>
+            <div class="form-group"><label>Currency</label>
+              <select id="stkCurrency"><option value="INR">INR ₹</option><option value="USD">USD $</option></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Quantity</label><input id="stkQty" type="number" step="1" min="1" oninput="onStockInput()"></div>
+            <div class="form-group"><label>Price / share</label><input id="stkPrice" type="number" step="any" min="0.0001" oninput="onStockInput()"></div>
+          </div>
+          <p id="stkNote" style="font-size:12px;color:#9ca3af;"></p>
+        </div>
         <div class="form-row single">
           <div class="form-group"><label>Description</label><input name="description" placeholder="Optional note"></div>
         </div>
@@ -92,9 +125,11 @@ let allRows = [], accounts = [], categories = [], catByCode = {}, funds = [];
 
 const DIR_BADGE = { INFLOW: 'badge-green', OUTFLOW: 'badge-red', TRANSFER: 'badge-blue' };
 
+let stocks = [];
 async function load() {
-  [allRows, accounts, categories, funds] = await Promise.all([
-    apiGet(API), apiGet('/api/accounts'), apiGet('/api/categories'), apiGet('/api/mutual-funds'),
+  [allRows, accounts, categories, funds, stocks] = await Promise.all([
+    apiGet(API), apiGet('/api/accounts'), apiGet('/api/categories'),
+    apiGet('/api/mutual-funds'), apiGet('/api/stocks'),
   ]);
   catByCode = Object.fromEntries(categories.map(c => [c.code, c]));
 
@@ -152,35 +187,67 @@ function fillCategories() {
     categories.map(c => `<option value="${c.code}">${esc(c.display_name)} (${c.direction.toLowerCase()})</option>`).join('');
 }
 
-// Show/hide From/To based on the selected category's direction.
+// Show/hide From/To + asset-specific fields based on the selected category.
 function onCatChange() {
   const code = document.getElementById('catSel').value;
   const dir = (catByCode[code] || {}).direction;
   const isMf = code === 'MF_INVESTMENT';
+  const isStock = code === 'STOCK_PURCHASE';
   document.getElementById('fromGroup').style.display = (dir === 'INFLOW') ? 'none' : 'flex';
-  document.getElementById('toGroup').style.display   = (dir === 'OUTFLOW' || isMf) ? 'none' : 'flex';
-  // MF Investment: reveal the fund + NAV pickers (buys units in that fund).
+  document.getElementById('toGroup').style.display   = (dir === 'OUTFLOW' || isMf || isStock) ? 'none' : 'flex';
   document.getElementById('mfRow').style.display = isMf ? 'flex' : 'none';
+  document.getElementById('stockRows').style.display = isStock ? 'block' : 'none';
+  // For stock buys the amount is derived from qty*price (read-only).
+  document.querySelector('#txForm [name="amount"]').readOnly = isStock;
+
   if (isMf) {
     const sel = document.getElementById('mfSel');
     const sipFirst = [...funds].sort((a, b) => (b.is_sip ? 1 : 0) - (a.is_sip ? 1 : 0));
     sel.innerHTML = sipFirst.map(f =>
-      `<option value="${f.id}">${esc(f.fund_name)}${f.is_sip ? ' · SIP' : ''}</option>`).join('');
+      `<option value="${f.id}">${esc(f.fund_name)}${f.is_sip ? ' · SIP' : ''}</option>`).join('')
+      + '<option value="__new__">➕ Add new fund…</option>';
     onMfChange();
+  } else if (isStock) {
+    document.getElementById('dematList').innerHTML =
+      [...new Set(stocks.map(s => s.demat_account))].map(d => `<option value="${esc(d)}">`).join('');
+    onStockInput();
   } else {
     document.getElementById('mfUnits').style.display = 'none';
   }
 }
 
-// When a fund is chosen, prefill NAV (current) and SIP amount.
+// When a fund is chosen, prefill NAV (current) and SIP amount, or reveal new-fund fields.
 function onMfChange() {
-  const f = funds.find(x => x.id == document.getElementById('mfSel').value);
+  const val = document.getElementById('mfSel').value;
+  const isNew = val === '__new__';
+  document.getElementById('newFundRow').style.display = isNew ? 'block' : 'none';
+  if (isNew) { document.getElementById('mfNav').value = ''; updateMfUnits(); return; }
+  const f = funds.find(x => x.id == val);
   if (!f) return;
   document.getElementById('mfNav').value = f.current_nav || '';
   const amtEl = document.querySelector('#txForm [name="amount"]');
   if (!amtEl.value && f.is_sip && f.sip_amount) amtEl.value = f.sip_amount;
   if (f.is_sip && f.sip_account_id) document.getElementById('fromSel').value = f.sip_account_id;
   updateMfUnits();
+}
+
+// Stock buy: derive amount = qty*price, note whether it adds to or creates a holding.
+function onStockInput() {
+  const qty = parseFloat(document.getElementById('stkQty').value);
+  const price = parseFloat(document.getElementById('stkPrice').value);
+  const demat = document.getElementById('stkDemat').value.trim();
+  const ticker = (document.getElementById('stkTicker').value || '').trim().toUpperCase();
+  if (qty > 0 && price > 0) document.querySelector('#txForm [name="amount"]').value = (qty * price).toFixed(2);
+  const match = stocks.find(s => s.demat_account === demat && s.ticker === ticker);
+  const note = document.getElementById('stkNote');
+  if (ticker && demat) {
+    note.textContent = match
+      ? `Adds to existing ${ticker} in ${demat} (currently ${match.quantity} @ ${fmtNum(match.avg_price)})`
+      : `Creates a new holding ${ticker} in ${demat}`;
+  } else note.textContent = '';
+  // Auto-set currency for US exchanges.
+  const ex = document.getElementById('stkExchange').value;
+  document.getElementById('stkCurrency').value = (ex === 'NYSE' || ex === 'NASDAQ') ? 'USD' : 'INR';
 }
 function updateMfUnits() {
   const amt = parseFloat(document.querySelector('#txForm [name="amount"]').value);
@@ -224,24 +291,54 @@ async function saveForm(e) {
   const err = document.getElementById('formErr');
   const dir = (catByCode[data.category_code] || {}).direction;
 
-  // Mutual Fund Investment: buy units in the selected fund from a bank account.
+  if (data.id && (data.category_code === 'MF_INVESTMENT' || data.category_code === 'STOCK_PURCHASE')) {
+    err.textContent = 'Edit purchases from the Mutual Funds / Stocks page.'; err.style.display = 'block';
+    return false;
+  }
+
+  // Mutual Fund Investment: buy units in the selected (or new) fund from a bank.
   if (data.category_code === 'MF_INVESTMENT') {
-    const fundId = document.getElementById('mfSel').value;
+    const sel = document.getElementById('mfSel').value;
     const nav = document.getElementById('mfNav').value;
-    if (!data.from_account_id || !fundId || !(parseFloat(nav) > 0)) {
-      err.textContent = 'Pick a from-account, a fund, and a valid NAV.'; err.style.display = 'block';
+    if (!data.from_account_id || !(parseFloat(nav) > 0) || !(parseFloat(data.amount) > 0)) {
+      err.textContent = 'Pick a from-account, amount, and a valid NAV.'; err.style.display = 'block';
       return false;
     }
-    if (data.id) {
-      err.textContent = 'Edit fund investments from the Mutual Funds page.'; err.style.display = 'block';
+    const body = { account_id: data.from_account_id, amount: data.amount, nav: nav, date: data.transaction_date };
+    if (sel === '__new__') {
+      body.platform = document.getElementById('newFundPlatform').value.trim();
+      body.fund_name = document.getElementById('newFundName').value.trim();
+      body.scheme_code = document.getElementById('newFundScheme').value.trim();
+      if (!body.platform || !body.fund_name) {
+        err.textContent = 'Enter platform and fund name for the new fund.'; err.style.display = 'block';
+        return false;
+      }
+    } else { body.fund_id = sel; }
+    try {
+      await apiSend('/api/mutual-funds/buy', 'POST', body);
+      closeModal('formModal'); showToast('Fund investment recorded'); await load();
+    } catch (ex) { showToast('Failed: ' + (ex.message || '').slice(0, 100), 'error'); }
+    return false;
+  }
+
+  // Stock Purchase: add to / create a holding under the chosen demat.
+  if (data.category_code === 'STOCK_PURCHASE') {
+    const demat = document.getElementById('stkDemat').value.trim();
+    const ticker = document.getElementById('stkTicker').value.trim();
+    const qty = document.getElementById('stkQty').value;
+    const price = document.getElementById('stkPrice').value;
+    if (!data.from_account_id || !demat || !ticker || !(parseFloat(qty) > 0) || !(parseFloat(price) > 0)) {
+      err.textContent = 'Enter from-account, demat, ticker, quantity and price.'; err.style.display = 'block';
       return false;
     }
     try {
-      await apiSend(`/api/mutual-funds/${fundId}/invest`, 'POST', {
-        account_id: data.from_account_id, amount: data.amount, nav: nav,
-        date: data.transaction_date,
+      await apiSend('/api/stocks/buy', 'POST', {
+        demat_account: demat, ticker: ticker, quantity: qty, price: price,
+        exchange: document.getElementById('stkExchange').value,
+        currency: document.getElementById('stkCurrency').value,
+        account_id: data.from_account_id, date: data.transaction_date,
       });
-      closeModal('formModal'); showToast('SIP investment recorded'); await load();
+      closeModal('formModal'); showToast('Stock purchase recorded'); await load();
     } catch (ex) { showToast('Failed: ' + (ex.message || '').slice(0, 100), 'error'); }
     return false;
   }

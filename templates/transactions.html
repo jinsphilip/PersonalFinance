@@ -107,6 +107,7 @@
         <div class="form-row single">
           <div class="form-group"><label>Description</label><input name="description" placeholder="Optional note"></div>
         </div>
+        <p id="txNote" style="color:#6b7280;font-size:12px;display:none;"></p>
         <p id="formErr" style="color:#f44336;font-size:12px;display:none;"></p>
       </div>
       <div class="modal-footer">
@@ -261,6 +262,8 @@ function openAdd() {
   document.getElementById('txForm').reset();
   document.getElementById('txId').value = '';
   document.getElementById('formErr').style.display = 'none';
+  document.getElementById('txNote').style.display = 'none';
+  document.getElementById('catSel').disabled = false;
   document.getElementById('modalTitle').textContent = 'Add Transaction';
   fillCategories();
   document.getElementById('fromSel').innerHTML = acctOptions();
@@ -273,6 +276,8 @@ function openEdit(id) {
   const r = allRows.find(x => x.id === id);
   document.getElementById('txForm').reset();
   document.getElementById('formErr').style.display = 'none';
+  document.getElementById('txNote').style.display = 'none';
+  document.getElementById('catSel').disabled = false;
   document.getElementById('modalTitle').textContent = 'Edit Transaction';
   fillCategories();
   document.getElementById('fromSel').innerHTML = acctOptions();
@@ -283,21 +288,47 @@ function openEdit(id) {
     from_account_id: r.from_account_id || '', to_account_id: r.to_account_id || '',
   });
   onCatChange();
+  // Purchases: only the paying account / date / description may be edited here.
+  if (['MF_INVESTMENT', 'STOCK_PURCHASE'].includes(r.category_code)) {
+    ['mfRow', 'newFundRow', 'stockRows', 'mfUnits'].forEach(k => document.getElementById(k).style.display = 'none');
+    document.getElementById('toGroup').style.display = 'none';
+    document.getElementById('fromGroup').style.display = 'flex';
+    document.querySelector('#txForm [name="amount"]').readOnly = true;
+    document.getElementById('catSel').disabled = true;
+    const note = document.getElementById('txNote');
+    note.textContent = 'You can change the paying account (and date). Amount, category and units are managed on the asset page.';
+    note.style.display = 'block';
+  }
   openModal('formModal');
 }
 async function saveForm(e) {
   e.preventDefault();
   const data = formToObject('txForm');
   const err = document.getElementById('formErr');
+  const editing = !!data.id;
+  const orig = editing ? allRows.find(x => x.id == data.id) : null;
   const dir = (catByCode[data.category_code] || {}).direction;
 
-  if (data.id && (data.category_code === 'MF_INVESTMENT' || data.category_code === 'STOCK_PURCHASE')) {
-    err.textContent = 'Edit purchases from the Mutual Funds / Stocks page.'; err.style.display = 'block';
+  // Editing an MF/Stock purchase: only correct the paying account (+ date/desc).
+  // Amount & category are forced to the originals so unit counts stay consistent.
+  if (editing && orig && ['MF_INVESTMENT', 'STOCK_PURCHASE'].includes(orig.category_code)) {
+    if (!data.from_account_id) {
+      err.textContent = 'Choose a from-account.'; err.style.display = 'block';
+      return false;
+    }
+    try {
+      await apiSend(`${API}/${data.id}`, 'PUT', {
+        category_code: orig.category_code, amount: orig.amount,
+        transaction_date: data.transaction_date, description: data.description,
+        from_account_id: data.from_account_id, to_account_id: '',
+      });
+      closeModal('formModal'); showToast('Updated'); await load();
+    } catch (ex) { showToast('Update failed: ' + (ex.message || '').slice(0, 100), 'error'); }
     return false;
   }
 
-  // Mutual Fund Investment: buy units in the selected (or new) fund from a bank.
-  if (data.category_code === 'MF_INVESTMENT') {
+  // Mutual Fund Investment (new): buy units in the selected (or new) fund from a bank.
+  if (!editing && data.category_code === 'MF_INVESTMENT') {
     const sel = document.getElementById('mfSel').value;
     const nav = document.getElementById('mfNav').value;
     if (!data.from_account_id || !(parseFloat(nav) > 0) || !(parseFloat(data.amount) > 0)) {
@@ -321,8 +352,8 @@ async function saveForm(e) {
     return false;
   }
 
-  // Stock Purchase: add to / create a holding under the chosen demat.
-  if (data.category_code === 'STOCK_PURCHASE') {
+  // Stock Purchase (new): add to / create a holding under the chosen demat.
+  if (!editing && data.category_code === 'STOCK_PURCHASE') {
     const demat = document.getElementById('stkDemat').value.trim();
     const ticker = document.getElementById('stkTicker').value.trim();
     const qty = document.getElementById('stkQty').value;

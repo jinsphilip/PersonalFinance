@@ -525,32 +525,67 @@ def api_mutual_fund(id):
     return jsonify(mf.to_dict())
 
 
-@app.route('/api/mutual-funds/<int:id>/invest', methods=['POST'])
-def api_mutual_fund_invest(id):
-    """Invest money from a bank account into this fund (SIP installment or lump
-    sum): debit the bank, buy units at NAV, update the fund's units + avg NAV."""
-    mf = MutualFund.query.get_or_404(id)
-    data = request.json
-    acct = Account.query.get_or_404(int(data['account_id']))
-    amount = float(data['amount'])
-    nav = float(data.get('nav') or mf.current_nav or 0)
-    if amount <= 0 or nav <= 0:
-        return jsonify({'error': 'amount and NAV must be positive'}), 400
-
+def _invest_in_fund(mf, amount, nav, account_id, when):
+    """Buy `amount` worth of units at `nav`, updating units + weighted avg NAV,
+    and debit the paying account. Shared by /invest and /buy."""
     units_bought = amount / nav
     new_invested = mf.units * mf.avg_nav + amount
     mf.units = mf.units + units_bought
     mf.avg_nav = new_invested / mf.units if mf.units else nav
+    if not mf.current_nav:
+        mf.current_nav = nav
+    acct = None
+    if account_id:
+        acct = Account.query.get_or_404(int(account_id))
+        services.post_transaction(
+            from_account_id=acct.id, to_account_id=None, amount=amount,
+            category_code='MF_INVESTMENT', transaction_date=when,
+            description=f'Invest · {mf.fund_name}', commit=False,
+        )
+    return acct
 
-    services.post_transaction(
-        from_account_id=acct.id, to_account_id=None, amount=amount,
-        category_code='MF_INVESTMENT',
-        transaction_date=data.get('date') or date.today().isoformat(),
-        description=f'Invest · {mf.fund_name}', commit=False,
-    )
+
+@app.route('/api/mutual-funds/<int:id>/invest', methods=['POST'])
+def api_mutual_fund_invest(id):
+    """Invest money from a bank account into this fund (SIP installment or lump sum)."""
+    mf = MutualFund.query.get_or_404(id)
+    data = request.json
+    amount = float(data['amount'])
+    nav = float(data.get('nav') or mf.current_nav or 0)
+    if amount <= 0 or nav <= 0:
+        return jsonify({'error': 'amount and NAV must be positive'}), 400
+    acct = _invest_in_fund(mf, amount, nav, data.get('account_id'), data.get('date') or date.today().isoformat())
     db.session.commit()
     return jsonify({'fund': mf.to_dict(),
-                    'account': db.session.get(Account, acct.id).to_dict()}), 201
+                    'account': acct.to_dict() if acct else None}), 201
+
+
+@app.route('/api/mutual-funds/buy', methods=['POST'])
+def api_mutual_funds_buy():
+    """Buy into a fund from the Transactions screen. Existing fund (fund_id) →
+    average up; otherwise create a new fund under the given platform, then invest."""
+    data = request.json
+    amount = float(data['amount'])
+    if data.get('fund_id'):
+        mf = MutualFund.query.get_or_404(int(data['fund_id']))
+        nav = float(data.get('nav') or mf.current_nav or 0)
+    else:
+        nav = float(data.get('nav') or data.get('avg_nav') or 0)
+        if not data.get('platform') or not data.get('fund_name'):
+            return jsonify({'error': 'platform and fund_name required for a new fund'}), 400
+        mf = MutualFund(
+            platform=data['platform'], fund_name=data['fund_name'],
+            folio_number=data.get('folio_number', ''), units=0,
+            avg_nav=nav, current_nav=nav, scheme_code=data.get('scheme_code', ''),
+            investment_date=data.get('date', ''),
+        )
+        db.session.add(mf)
+        db.session.flush()
+    if amount <= 0 or nav <= 0:
+        return jsonify({'error': 'amount and NAV must be positive'}), 400
+    acct = _invest_in_fund(mf, amount, nav, data.get('account_id'), data.get('date') or date.today().isoformat())
+    db.session.commit()
+    return jsonify({'fund': mf.to_dict(), 'account': acct.to_dict() if acct else None}), 201
 
 
 # ─── Stocks ────────────────────────────────────────────────────────────────────
@@ -579,6 +614,61 @@ def api_stocks():
     db.session.add(s)
     db.session.commit()
     return jsonify(s.to_dict()), 201
+
+
+@app.route('/api/stocks/buy', methods=['POST'])
+def api_stocks_buy():
+    """Buy a stock from the Transactions screen. If (demat, ticker) already
+    exists, average up (qty + weighted avg price); otherwise create the holding
+    under that demat. Debits the paying account by qty*price (in INR)."""
+    data = request.json
+    demat = data['demat_account'].strip()
+    ticker = data['ticker'].strip().upper()
+    qty = int(data['quantity'])
+    price = float(data['price'])
+    if qty <= 0 or price <= 0:
+        return jsonify({'error': 'quantity and price must be positive'}), 400
+    currency = (data.get('currency') or 'INR').upper()
+
+    existing = Stock.query.filter_by(demat_account=demat, ticker=ticker).first()
+    if existing:
+        total = existing.quantity + qty
+        existing.avg_price = (existing.quantity * existing.avg_price + qty * price) / total
+        existing.quantity = total
+        if not existing.current_price:
+            existing.current_price = price
+        stock = existing
+    else:
+        if data.get('fx_rate'):
+            fx_rate = float(data['fx_rate'])
+        elif currency != 'INR':
+            fx_rate = prices.fetch_fx_rate(currency, 'INR') or 1.0
+        else:
+            fx_rate = 1.0
+        stock = Stock(
+            demat_account=demat, company_name=data.get('company_name') or ticker,
+            ticker=ticker, quantity=qty, avg_price=price, current_price=price,
+            sector=data.get('sector', ''), exchange=data.get('exchange', 'NSE'),
+            currency=currency, fx_rate=fx_rate,
+        )
+        db.session.add(stock)
+        db.session.flush()
+
+    acct = None
+    if data.get('account_id'):
+        acct = Account.query.get_or_404(int(data['account_id']))
+        amount_inr = qty * price * (stock.fx_rate or 1.0)
+        services.post_transaction(
+            from_account_id=acct.id, to_account_id=None, amount=amount_inr,
+            category_code='STOCK_PURCHASE', transaction_date=data.get('date') or date.today().isoformat(),
+            description=f'Buy {qty} {ticker} @ {ccy_prefix(currency)}{price}', commit=False,
+        )
+    db.session.commit()
+    return jsonify({'stock': stock.to_dict(), 'account': acct.to_dict() if acct else None}), 201
+
+
+def ccy_prefix(currency):
+    return '$' if (currency or 'INR').upper() == 'USD' else '₹'
 
 
 @app.route('/api/stocks/<int:id>', methods=['PUT', 'DELETE'])

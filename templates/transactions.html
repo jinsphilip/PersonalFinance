@@ -104,6 +104,20 @@
           </div>
           <p id="stkNote" style="font-size:12px;color:#9ca3af;"></p>
         </div>
+
+        <!-- Shown only for Stock Sale: pick a holding + qty/price -->
+        <div id="sellRows" style="display:none;">
+          <div class="form-row single">
+            <div class="form-group"><label>Holding to Sell</label>
+              <select id="sellSel" onchange="onSellChange()"></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Quantity</label><input id="sellQty" type="number" step="1" min="1" oninput="onSellInput()"></div>
+            <div class="form-group"><label>Sell Price / share</label><input id="sellPrice" type="number" step="any" min="0.0001" oninput="onSellInput()"></div>
+          </div>
+          <p id="sellNote" style="font-size:12px;color:#9ca3af;"></p>
+        </div>
         <div class="form-row single">
           <div class="form-group"><label>Description</label><input name="description" placeholder="Optional note"></div>
         </div>
@@ -194,13 +208,21 @@ function onCatChange() {
   const dir = (catByCode[code] || {}).direction;
   const isMf = code === 'MF_INVESTMENT';
   const isStock = code === 'STOCK_PURCHASE';
-  document.getElementById('fromGroup').style.display = (dir === 'INFLOW') ? 'none' : 'flex';
+  const isSell = code === 'STOCK_SELL';
+  document.getElementById('fromGroup').style.display = (dir === 'INFLOW' || isSell) ? 'none' : 'flex';
   document.getElementById('toGroup').style.display   = (dir === 'OUTFLOW' || isMf || isStock) ? 'none' : 'flex';
   document.getElementById('mfRow').style.display = isMf ? 'flex' : 'none';
   document.getElementById('stockRows').style.display = isStock ? 'block' : 'none';
-  // For stock buys the amount is derived from qty*price (read-only).
-  document.querySelector('#txForm [name="amount"]').readOnly = isStock;
+  document.getElementById('sellRows').style.display = isSell ? 'block' : 'none';
+  // For stock buy/sell the amount is derived from qty*price (read-only).
+  document.querySelector('#txForm [name="amount"]').readOnly = isStock || isSell;
 
+  if (isSell) {
+    const sel = document.getElementById('sellSel');
+    sel.innerHTML = stocks.filter(s => s.quantity > 0).map(s =>
+      `<option value="${s.id}">${esc(s.ticker)} · ${esc(s.demat_account)} — ${s.quantity} @ ${fmtNum(s.avg_price)}</option>`).join('');
+    onSellChange();
+  }
   if (isMf) {
     const sel = document.getElementById('mfSel');
     const sipFirst = [...funds].sort((a, b) => (b.is_sip ? 1 : 0) - (a.is_sip ? 1 : 0));
@@ -250,6 +272,28 @@ function onStockInput() {
   const ex = document.getElementById('stkExchange').value;
   document.getElementById('stkCurrency').value = (ex === 'NYSE' || ex === 'NASDAQ') ? 'USD' : 'INR';
 }
+
+// Stock sell: prefill sell price from current price, cap qty at held.
+function onSellChange() {
+  const s = stocks.find(x => x.id == document.getElementById('sellSel').value);
+  if (!s) return;
+  document.getElementById('sellPrice').value = s.current_price || '';
+  document.getElementById('sellQty').max = s.quantity;
+  onSellInput();
+}
+function onSellInput() {
+  const s = stocks.find(x => x.id == document.getElementById('sellSel').value);
+  const qty = parseFloat(document.getElementById('sellQty').value);
+  const price = parseFloat(document.getElementById('sellPrice').value);
+  const note = document.getElementById('sellNote');
+  if (s && qty > 0 && price > 0) {
+    document.querySelector('#txForm [name="amount"]').value = (qty * price).toFixed(2);
+    const realized = (price - s.avg_price) * qty;
+    const cls = realized >= 0 ? 'gain' : 'loss';
+    note.innerHTML = `Proceeds ${fmt(qty * price)} · realized <span class="${cls}">${realized >= 0 ? '+' : ''}${fmt(realized)}</span>`
+      + (qty >= s.quantity ? ' · closes the holding' : '');
+  } else note.textContent = '';
+}
 function updateMfUnits() {
   const amt = parseFloat(document.querySelector('#txForm [name="amount"]').value);
   const nav = parseFloat(document.getElementById('mfNav').value);
@@ -288,15 +332,19 @@ function openEdit(id) {
     from_account_id: r.from_account_id || '', to_account_id: r.to_account_id || '',
   });
   onCatChange();
-  // Purchases: only the paying account / date / description may be edited here.
-  if (['MF_INVESTMENT', 'STOCK_PURCHASE'].includes(r.category_code)) {
-    ['mfRow', 'newFundRow', 'stockRows', 'mfUnits'].forEach(k => document.getElementById(k).style.display = 'none');
-    document.getElementById('toGroup').style.display = 'none';
-    document.getElementById('fromGroup').style.display = 'flex';
+  // Buy/sell: only the counter-account / date / description may be edited here.
+  if (['MF_INVESTMENT', 'STOCK_PURCHASE', 'STOCK_SELL'].includes(r.category_code)) {
+    ['mfRow', 'newFundRow', 'stockRows', 'mfUnits', 'sellRows'].forEach(k => document.getElementById(k).style.display = 'none');
+    const inflow = r.direction === 'INFLOW';   // sale credits an account
+    document.getElementById('toGroup').style.display = inflow ? 'flex' : 'none';
+    document.getElementById('fromGroup').style.display = inflow ? 'none' : 'flex';
+    if (inflow) document.getElementById('toSel').value = r.to_account_id || '';
     document.querySelector('#txForm [name="amount"]').readOnly = true;
     document.getElementById('catSel').disabled = true;
     const note = document.getElementById('txNote');
-    note.textContent = 'You can change the paying account (and date). Amount, category and units are managed on the asset page.';
+    note.textContent = inflow
+      ? 'You can change the receiving account (and date). Amount, category and units are managed on the Stocks page.'
+      : 'You can change the paying account (and date). Amount, category and units are managed on the asset page.';
     note.style.display = 'block';
   }
   openModal('formModal');
@@ -309,18 +357,20 @@ async function saveForm(e) {
   const orig = editing ? allRows.find(x => x.id == data.id) : null;
   const dir = (catByCode[data.category_code] || {}).direction;
 
-  // Editing an MF/Stock purchase: only correct the paying account (+ date/desc).
-  // Amount & category are forced to the originals so unit counts stay consistent.
-  if (editing && orig && ['MF_INVESTMENT', 'STOCK_PURCHASE'].includes(orig.category_code)) {
-    if (!data.from_account_id) {
-      err.textContent = 'Choose a from-account.'; err.style.display = 'block';
+  // Editing a buy/sell: only correct the counter-account (+ date/desc). Amount &
+  // category are forced to the originals so unit counts stay consistent.
+  if (editing && orig && ['MF_INVESTMENT', 'STOCK_PURCHASE', 'STOCK_SELL'].includes(orig.category_code)) {
+    const inflow = orig.direction === 'INFLOW';   // stock sale
+    const acctVal = inflow ? data.to_account_id : data.from_account_id;
+    if (!acctVal) {
+      err.textContent = inflow ? 'Choose a receiving account.' : 'Choose a from-account.'; err.style.display = 'block';
       return false;
     }
     try {
       await apiSend(`${API}/${data.id}`, 'PUT', {
         category_code: orig.category_code, amount: orig.amount,
         transaction_date: data.transaction_date, description: data.description,
-        from_account_id: data.from_account_id, to_account_id: '',
+        from_account_id: inflow ? '' : acctVal, to_account_id: inflow ? acctVal : '',
       });
       closeModal('formModal'); showToast('Updated'); await load();
     } catch (ex) { showToast('Update failed: ' + (ex.message || '').slice(0, 100), 'error'); }
@@ -370,6 +420,27 @@ async function saveForm(e) {
         account_id: data.from_account_id, date: data.transaction_date,
       });
       closeModal('formModal'); showToast('Stock purchase recorded'); await load();
+    } catch (ex) { showToast('Failed: ' + (ex.message || '').slice(0, 100), 'error'); }
+    return false;
+  }
+
+  // Stock Sale (new): reduce the chosen holding, credit proceeds to an account.
+  if (!editing && data.category_code === 'STOCK_SELL') {
+    const stockId = document.getElementById('sellSel').value;
+    const qty = document.getElementById('sellQty').value;
+    const price = document.getElementById('sellPrice').value;
+    if (!data.to_account_id || !stockId || !(parseFloat(qty) > 0) || !(parseFloat(price) > 0)) {
+      err.textContent = 'Pick a holding, quantity, price and a credit account.'; err.style.display = 'block';
+      return false;
+    }
+    try {
+      const res = await apiSend('/api/stocks/sell', 'POST', {
+        stock_id: stockId, quantity: qty, price: price,
+        account_id: data.to_account_id, date: data.transaction_date,
+      });
+      closeModal('formModal');
+      showToast('Sold · realized ' + fmt(res.realized));
+      await load();
     } catch (ex) { showToast('Failed: ' + (ex.message || '').slice(0, 100), 'error'); }
     return false;
   }

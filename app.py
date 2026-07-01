@@ -671,6 +671,46 @@ def ccy_prefix(currency):
     return '$' if (currency or 'INR').upper() == 'USD' else '₹'
 
 
+@app.route('/api/stocks/sell', methods=['POST'])
+def api_stocks_sell():
+    """Sell part/all of a holding (double-entry): reduce quantity and credit the
+    sale proceeds into a bank/demat account. Cost basis (avg) is unchanged on a
+    partial sell; a full sell removes the holding. Reports realized gain/loss."""
+    data = request.json
+    stock = Stock.query.get_or_404(int(data['stock_id']))
+    qty = int(data['quantity'])
+    price = float(data['price'])
+    if qty <= 0 or qty > stock.quantity:
+        return jsonify({'error': f'quantity must be 1..{stock.quantity}'}), 400
+    if price <= 0:
+        return jsonify({'error': 'price must be positive'}), 400
+
+    fx = stock.fx_rate or 1.0
+    proceeds_inr = qty * price * fx
+    realized_inr = (price - stock.avg_price) * qty * fx
+    ticker, currency = stock.ticker, stock.currency
+
+    stock.quantity -= qty
+    stock_dict = stock.to_dict() if stock.quantity > 0 else None
+    if stock.quantity <= 0:
+        db.session.delete(stock)
+
+    acct = None
+    if data.get('account_id'):
+        acct = Account.query.get_or_404(int(data['account_id']))
+        services.post_transaction(
+            from_account_id=None, to_account_id=acct.id, amount=proceeds_inr,
+            category_code='STOCK_SELL', transaction_date=data.get('date') or date.today().isoformat(),
+            description=f'Sell {qty} {ticker} @ {ccy_prefix(currency)}{price}', commit=False,
+        )
+    db.session.commit()
+    return jsonify({
+        'stock': stock_dict,
+        'account': db.session.get(Account, acct.id).to_dict() if acct else None,
+        'realized': round(realized_inr, 2),
+    }), 201
+
+
 @app.route('/api/stocks/<int:id>', methods=['PUT', 'DELETE'])
 def api_stock(id):
     s = Stock.query.get_or_404(id)

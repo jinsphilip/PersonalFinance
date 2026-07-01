@@ -44,6 +44,7 @@ CATEGORIES = [
     ('EMI',               'Loan EMI',           'OUTFLOW'),
     ('MF_INVESTMENT',     'Mutual Fund Investment', 'OUTFLOW'),
     ('STOCK_PURCHASE',    'Stock Purchase',     'OUTFLOW'),
+    ('STOCK_SELL',        'Stock Sale',         'INFLOW'),
     ('TRADING_GAIN',      'Trading Gain',       'INFLOW'),
     ('TRADING_LOSS',      'Trading Loss',       'OUTFLOW'),
     ('BROKERAGE',         'Brokerage & Charges','OUTFLOW'),

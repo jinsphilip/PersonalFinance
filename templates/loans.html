@@ -84,7 +84,8 @@
         <p id="prepayInfo" style="color:#6b7280;font-size:13px;margin:0 0 12px;"></p>
         <div class="form-row single">
           <div class="form-group"><label>Pay From Account</label>
-            <select name="account_id" id="prepayAccount" required></select>
+            <select name="account_id" id="prepayAccount"></select>
+            <small style="color:#6b7280;">Optional — pick a bank to also debit the cash, or leave as "no account" to just reduce the loan balance.</small>
           </div>
         </div>
         <div class="form-row">
@@ -174,6 +175,7 @@ async function openPrepay(id) {
   // Populate payable accounts (bank / wallet).
   const accts = (await apiGet('/api/accounts')).filter(a => ['BANK', 'WALLET'].includes(a.account_type_code));
   document.getElementById('prepayAccount').innerHTML =
+    '<option value="">— No account (reduce balance only) —</option>' +
     accts.map(a => `<option value="${a.id}">${esc(a.name)} — ${fmt(a.current_balance)}</option>`).join('');
   openModal('prepayModal');
 }
@@ -181,9 +183,11 @@ async function savePrepay(e) {
   e.preventDefault();
   const data = formToObject('prepayForm');
   try {
-    await apiSend(`${API}/${data.id}/prepay`, 'POST',
-      { account_id: data.account_id, amount: data.amount, date: data.date });
-    closeModal('prepayModal'); showToast('Prepayment recorded'); load();
+    const res = await apiSend(`${API}/${data.id}/prepay`, 'POST',
+      { account_id: data.account_id || null, amount: data.amount, date: data.date });
+    closeModal('prepayModal');
+    showToast('Prepaid — new outstanding ' + fmt(res.loan.outstanding_amount));
+    await load();
   } catch (err) {
     let msg = 'Prepayment failed';
     try { msg = JSON.parse(err.message).error || msg; } catch (_) {}

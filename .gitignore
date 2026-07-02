@@ -17,6 +17,9 @@ build/
 dist/
 *.spec
 
+# Secrets — local API key file (never commit)
+set_api_key.bat
+
 # OS / editor
 .DS_Store
 .idea/

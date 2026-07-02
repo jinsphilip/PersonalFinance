@@ -1,0 +1,14 @@
+@echo off
+REM ─────────────────────────────────────────────────────────────────────────────
+REM  Claude API key for the AI Portfolio Analysis feature.
+REM
+REM  SETUP:
+REM    1. Copy this file to  set_api_key.bat   (same folder as run.bat)
+REM    2. Replace the placeholder below with your real key from
+REM       https://console.anthropic.com  ->  API Keys
+REM    3. Run run.bat as usual - it loads this automatically.
+REM
+REM  set_api_key.bat is git-ignored so your key is never committed.
+REM ─────────────────────────────────────────────────────────────────────────────
+
+set "ANTHROPIC_API_KEY=sk-ant-your-key-here"

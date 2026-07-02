@@ -29,6 +29,17 @@ if not exist "venv\Scripts\python.exe" (
 REM Use the venv's Python from here on
 set "VPY=venv\Scripts\python.exe"
 
+REM Load the Claude API key (needed for the Portfolio Analysis page) from a local,
+REM untracked file so the secret never gets committed. Copy set_api_key.bat.example
+REM to set_api_key.bat and put your real key in it.
+if exist "set_api_key.bat" (
+    call "set_api_key.bat"
+    echo [setup] Loaded ANTHROPIC_API_KEY from set_api_key.bat
+) else (
+    echo [note] set_api_key.bat not found - AI Portfolio Analysis will be disabled.
+    echo [note] Copy set_api_key.bat.example to set_api_key.bat and add your key.
+)
+
 echo [setup] Installing dependencies...
 "%VPY%" -m pip install --upgrade pip >nul
 "%VPY%" -m pip install -r requirements.txt

@@ -65,6 +65,35 @@
     </form>
   </div>
 </div>
+
+<div class="modal-overlay" id="prepayModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Loan Prepayment</h3>
+      <button class="modal-close" onclick="closeModal('prepayModal')">&times;</button>
+    </div>
+    <form id="prepayForm" onsubmit="return savePrepay(event)">
+      <div class="modal-body">
+        <input type="hidden" name="id" id="prepayId">
+        <p id="prepayInfo" style="color:#6b7280;font-size:13px;margin:0 0 12px;"></p>
+        <div class="form-row single">
+          <div class="form-group"><label>Pay From Account</label>
+            <select name="account_id" id="prepayAccount" required></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Amount (₹)</label><input name="amount" id="prepayAmount" type="number" step="any" required></div>
+          <div class="form-group"><label>Date</label><input name="date" id="prepayDate" type="date"></div>
+        </div>
+        <p style="color:#6b7280;font-size:12px;margin:4px 0 0;">Reduces the outstanding balance and debits the chosen account. Net worth is unaffected.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('prepayModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Prepay</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -96,6 +125,7 @@ async function load() {
         </div>
       </td>
       <td><div class="actions">
+        <button class="btn-icon" title="Prepay" onclick='openPrepay(${r.id})'>₹</button>
         <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
         <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
       </div></td>
@@ -124,6 +154,33 @@ async function saveForm(e) {
     else await apiSend(API, 'POST', data);
     closeModal('formModal'); showToast('Saved'); load();
   } catch { showToast('Save failed', 'error'); }
+  return false;
+}
+async function openPrepay(id) {
+  const r = rows.find(x => x.id === id);
+  document.getElementById('prepayForm').reset();
+  document.getElementById('prepayId').value = id;
+  document.getElementById('prepayInfo').textContent =
+    `${r.lender} (${r.loan_type}) — outstanding ${fmt(r.outstanding_amount)}`;
+  document.getElementById('prepayDate').value = new Date().toISOString().slice(0, 10);
+  // Populate payable accounts (bank / wallet).
+  const accts = (await apiGet('/api/accounts')).filter(a => ['BANK', 'WALLET'].includes(a.account_type_code));
+  document.getElementById('prepayAccount').innerHTML =
+    accts.map(a => `<option value="${a.id}">${esc(a.name)} — ${fmt(a.current_balance)}</option>`).join('');
+  openModal('prepayModal');
+}
+async function savePrepay(e) {
+  e.preventDefault();
+  const data = formToObject('prepayForm');
+  try {
+    await apiSend(`${API}/${data.id}/prepay`, 'POST',
+      { account_id: data.account_id, amount: data.amount, date: data.date });
+    closeModal('prepayModal'); showToast('Prepayment recorded'); load();
+  } catch (err) {
+    let msg = 'Prepayment failed';
+    try { msg = JSON.parse(err.message).error || msg; } catch (_) {}
+    showToast(msg, 'error');
+  }
   return false;
 }
 function del(id) {

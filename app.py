@@ -807,6 +807,37 @@ def api_loan(id):
     return jsonify(l.to_dict())
 
 
+@app.route('/api/loans/<int:id>/prepay', methods=['POST'])
+def api_loan_prepay(id):
+    """Make an extra principal payment: debit a bank account through the ledger
+    and reduce the loan's outstanding. Net worth stays flat (cash down, debt down)."""
+    l = Loan.query.get_or_404(id)
+    data = request.json or {}
+    try:
+        amount = float(data.get('amount') or 0)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid amount'}), 400
+    if amount <= 0:
+        return jsonify({'error': 'amount must be > 0'}), 400
+    if amount > l.outstanding_amount + 1e-6:
+        return jsonify({'error': 'amount exceeds outstanding balance'}), 400
+
+    account_id = data.get('account_id')
+    when = data.get('date') or date.today().isoformat()
+    if account_id:
+        services.post_transaction(
+            from_account_id=int(account_id), to_account_id=None,
+            amount=amount, category_code='LOAN_PREPAYMENT',
+            transaction_date=when,
+            description=f'Prepayment · {l.lender} ({l.loan_type})',
+            commit=False,
+        )
+    l.outstanding_amount = round(l.outstanding_amount - amount, 2)
+    db.session.commit()
+    acct = Account.query.get(int(account_id)) if account_id else None
+    return jsonify({'loan': l.to_dict(), 'account': acct.to_dict() if acct else None})
+
+
 # ─── Chit Funds ────────────────────────────────────────────────────────────────
 
 @app.route('/api/chit-funds', methods=['GET', 'POST'])

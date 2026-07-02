@@ -305,6 +305,7 @@ class Loan(db.Model):
     outstanding_amount = db.Column(db.Float, nullable=False, default=0)
     interest_rate = db.Column(db.Float, nullable=False, default=0)
     emi_amount = db.Column(db.Float, nullable=False, default=0)
+    advance_amount = db.Column(db.Float, nullable=False, default=0)  # fixed extra principal paid monthly on top of EMI
     tenure_months = db.Column(db.Integer, nullable=False, default=0)
     start_date = db.Column(db.String(20))
     next_due_date = db.Column(db.String(20))
@@ -320,6 +321,8 @@ class Loan(db.Model):
             'outstanding_amount': self.outstanding_amount,
             'interest_rate': self.interest_rate,
             'emi_amount': self.emi_amount,
+            'advance_amount': self.advance_amount or 0,
+            'monthly_total': round((self.emi_amount or 0) + (self.advance_amount or 0), 2),
             'tenure_months': self.tenure_months,
             'start_date': self.start_date,
             'next_due_date': self.next_due_date,

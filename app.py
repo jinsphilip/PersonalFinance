@@ -87,6 +87,7 @@ def ensure_legacy_columns():
             ('sip_start_date', 'VARCHAR(20)'), ('sip_status', "VARCHAR(15) DEFAULT 'active'"),
             ('sip_account_id', 'INTEGER'),
         ],
+        'loans': [('advance_amount', 'FLOAT DEFAULT 0')],
         'bank_accounts': [('account_subtype', "VARCHAR(20) DEFAULT 'bank'")],
         'expenses': [('account_name', 'VARCHAR(100)')],
         'transfers': [('from_account_name', 'VARCHAR(100)'),
@@ -300,8 +301,8 @@ def api_dashboard():
 
     # Recurring monthly commitments: loan EMIs, active SIPs, chit contributions.
     emi_items = [{'type': 'EMI', 'name': f"{l.lender} ({l.loan_type})",
-                  'amount': l.emi_amount, 'due': l.next_due_date}
-                 for l in Loan.query.all() if l.emi_amount]
+                  'amount': (l.emi_amount or 0) + (l.advance_amount or 0), 'due': l.next_due_date}
+                 for l in Loan.query.all() if (l.emi_amount or 0) + (l.advance_amount or 0) > 0]
     sip_items = [{'type': 'SIP', 'name': f.fund_name,
                   'amount': f._monthly_sip(), 'due': f._next_sip_date()}
                  for f in MutualFund.query.all() if f._monthly_sip() > 0]
@@ -778,6 +779,7 @@ def api_loans():
         principal_amount=float(data['principal_amount']),
         outstanding_amount=float(data['outstanding_amount']),
         interest_rate=float(data['interest_rate']), emi_amount=float(data['emi_amount']),
+        advance_amount=float(data.get('advance_amount') or 0),
         tenure_months=int(data['tenure_months']), start_date=data.get('start_date', ''),
         next_due_date=data.get('next_due_date', ''),
     )
@@ -800,11 +802,43 @@ def api_loan(id):
     l.outstanding_amount = float(data.get('outstanding_amount', l.outstanding_amount))
     l.interest_rate = float(data.get('interest_rate', l.interest_rate))
     l.emi_amount = float(data.get('emi_amount', l.emi_amount))
+    l.advance_amount = float(data.get('advance_amount', l.advance_amount or 0) or 0)
     l.tenure_months = int(data.get('tenure_months', l.tenure_months))
     l.start_date = data.get('start_date', l.start_date)
     l.next_due_date = data.get('next_due_date', l.next_due_date)
     db.session.commit()
     return jsonify(l.to_dict())
+
+
+@app.route('/api/loans/<int:id>/prepay', methods=['POST'])
+def api_loan_prepay(id):
+    """Make an extra principal payment: debit a bank account through the ledger
+    and reduce the loan's outstanding. Net worth stays flat (cash down, debt down)."""
+    l = Loan.query.get_or_404(id)
+    data = request.json or {}
+    try:
+        amount = float(data.get('amount') or 0)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid amount'}), 400
+    if amount <= 0:
+        return jsonify({'error': 'amount must be > 0'}), 400
+    if amount > l.outstanding_amount + 1e-6:
+        return jsonify({'error': 'amount exceeds outstanding balance'}), 400
+
+    account_id = data.get('account_id')
+    when = data.get('date') or date.today().isoformat()
+    if account_id:
+        services.post_transaction(
+            from_account_id=int(account_id), to_account_id=None,
+            amount=amount, category_code='LOAN_PREPAYMENT',
+            transaction_date=when,
+            description=f'Prepayment · {l.lender} ({l.loan_type})',
+            commit=False,
+        )
+    l.outstanding_amount = round(l.outstanding_amount - amount, 2)
+    db.session.commit()
+    acct = Account.query.get(int(account_id)) if account_id else None
+    return jsonify({'loan': l.to_dict(), 'account': acct.to_dict() if acct else None})
 
 
 # ─── Chit Funds ────────────────────────────────────────────────────────────────

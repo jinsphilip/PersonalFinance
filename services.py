@@ -42,6 +42,7 @@ CATEGORIES = [
     ('EXPENSE_FUEL',          'Fuel',           'OUTFLOW'),
     ('EXPENSE_OTHER',         'Other Expense',  'OUTFLOW'),
     ('EMI',               'Loan EMI',           'OUTFLOW'),
+    ('LOAN_PREPAYMENT',   'Loan Prepayment',    'OUTFLOW'),
     ('MF_INVESTMENT',     'Mutual Fund Investment', 'OUTFLOW'),
     ('STOCK_PURCHASE',    'Stock Purchase',     'OUTFLOW'),
     ('STOCK_SELL',        'Stock Sale',         'INFLOW'),

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from models import db, MutualFund, AnalysisReport
 
-MODEL = 'claude-opus-4-8'
+MODEL = 'claude-3-5-sonnet-20241022'
 _PROMPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             'prompts', 'portfolio_auditor.md')
 
@@ -90,12 +90,13 @@ def run_portfolio_analysis(overlap_text=''):
     client = anthropic.Anthropic()   # reads ANTHROPIC_API_KEY from env
 
     try:
+        # Claude 3.5 Sonnet: no extended thinking, and the basic web-search tool
+        # version (dynamic-filtering web_search_20260209 is 4.6+ only).
         with client.messages.stream(
             model=MODEL,
-            max_tokens=32000,
-            thinking={'type': 'adaptive'},
+            max_tokens=8192,
             system=system_prompt,
-            tools=[{'type': 'web_search_20260209', 'name': 'web_search'}],
+            tools=[{'type': 'web_search_20250305', 'name': 'web_search'}],
             messages=[{'role': 'user', 'content': user_message}],
         ) as stream:
             final = stream.get_final_message()

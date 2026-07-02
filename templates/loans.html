@@ -6,7 +6,7 @@
 <div class="cards-row">
   <div class="card"><div class="card-label">Total Outstanding</div><div class="card-value red" id="outstanding">—</div></div>
   <div class="card"><div class="card-label">Total Borrowed</div><div class="card-value" id="principal">—</div></div>
-  <div class="card"><div class="card-label">Monthly EMI</div><div class="card-value" id="emi">—</div></div>
+  <div class="card"><div class="card-label">Monthly Outgo (EMI + Advance)</div><div class="card-value" id="emi">—</div></div>
   <div class="card"><div class="card-label">Active Loans</div><div class="card-value" id="count">—</div></div>
 </div>
 
@@ -19,7 +19,8 @@
     <table>
       <thead><tr>
         <th>Type</th><th>Lender</th><th style="text-align:right">Outstanding</th>
-        <th style="text-align:right">EMI</th><th style="text-align:right">Rate</th>
+        <th style="text-align:right">EMI</th><th style="text-align:right">Advance</th>
+        <th style="text-align:right">Monthly Total</th><th style="text-align:right">Rate</th>
         <th>Next Due</th><th>Payoff</th><th></th>
       </tr></thead>
       <tbody id="tbody"></tbody>
@@ -49,6 +50,11 @@
         <div class="form-row">
           <div class="form-group"><label>Interest Rate (%)</label><input name="interest_rate" type="number" step="any" required></div>
           <div class="form-group"><label>EMI (₹)</label><input name="emi_amount" type="number" step="any" required></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Advance / month (₹)</label><input name="advance_amount" type="number" step="any" placeholder="0">
+            <small style="color:#6b7280;">Fixed extra toward principal paid on top of the EMI each month.</small>
+          </div>
         </div>
         <div class="form-row">
           <div class="form-group"><label>Tenure (months)</label><input name="tenure_months" type="number" step="1" required></div>
@@ -105,17 +111,19 @@ async function load() {
   rows = await apiGet(API);
   document.getElementById('outstanding').textContent = fmt(rows.reduce((s, r) => s + r.outstanding_amount, 0));
   document.getElementById('principal').textContent = fmt(rows.reduce((s, r) => s + r.principal_amount, 0));
-  document.getElementById('emi').textContent = fmt(rows.reduce((s, r) => s + r.emi_amount, 0));
+  document.getElementById('emi').textContent = fmt(rows.reduce((s, r) => s + (r.monthly_total ?? r.emi_amount), 0));
   document.getElementById('count').textContent = rows.length;
 
   const tb = document.getElementById('tbody');
-  if (!rows.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">No loans yet.</td></tr>'; return; }
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">No loans yet.</td></tr>'; return; }
   tb.innerHTML = rows.map(r => `
     <tr>
       <td><span class="badge badge-orange">${esc(r.loan_type)}</span></td>
       <td>${esc(r.lender)}</td>
       <td style="text-align:right" class="loss">${fmt(r.outstanding_amount)}</td>
       <td style="text-align:right">${fmt(r.emi_amount)}</td>
+      <td style="text-align:right">${r.advance_amount ? fmt(r.advance_amount) : '—'}</td>
+      <td style="text-align:right;font-weight:600">${fmt(r.monthly_total)}</td>
       <td style="text-align:right">${fmtNum(r.interest_rate)}%</td>
       <td>${fmtDate(r.next_due_date)}</td>
       <td>

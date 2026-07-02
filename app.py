@@ -57,6 +57,17 @@ def _sqlite_pragmas(dbapi_connection, _record):
         cur.close()
 
 
+@app.after_request
+def _no_cache_api(response):
+    """Stop the browser from serving stale JSON after a mutation (e.g. a loan
+    prepayment): the dashboard/loans GETs must always hit the server."""
+    if request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+
 # ─── Legacy → ledger migration ──────────────────────────────────────────────
 
 # Old expense category labels → new ledger category codes.

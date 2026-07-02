@@ -13,7 +13,10 @@
 <div class="section">
   <div class="section-header">
     <span class="section-title">Loans</span>
-    <button class="btn btn-primary" onclick="openAdd()">+ Add Loan</button>
+    <div>
+      <button class="btn btn-secondary" onclick="openPrepayGeneral()">₹ Prepay Loan</button>
+      <button class="btn btn-primary" onclick="openAdd()">+ Add Loan</button>
+    </div>
   </div>
   <div class="table-wrap">
     <table>
@@ -80,7 +83,11 @@
     </div>
     <form id="prepayForm" onsubmit="return savePrepay(event)">
       <div class="modal-body">
-        <input type="hidden" name="id" id="prepayId">
+        <div class="form-row single">
+          <div class="form-group"><label>Loan</label>
+            <select name="loan_id" id="prepayLoan" required onchange="onPrepayLoanChange()"></select>
+          </div>
+        </div>
         <p id="prepayInfo" style="color:#6b7280;font-size:13px;margin:0 0 12px;"></p>
         <div class="form-row single">
           <div class="form-group"><label>Pay From Account</label>
@@ -165,12 +172,22 @@ async function saveForm(e) {
   } catch { showToast('Save failed', 'error'); }
   return false;
 }
-async function openPrepay(id) {
+function onPrepayLoanChange() {
+  const id = parseInt(document.getElementById('prepayLoan').value, 10);
   const r = rows.find(x => x.id === id);
+  document.getElementById('prepayInfo').textContent = r
+    ? `Reducing principal for ${r.lender} (${r.loan_type}) — current outstanding ${fmt(r.outstanding_amount)}`
+    : '';
+}
+async function openPrepayDialog(selectedId) {
+  if (!rows.length) { showToast('Add a loan first', 'error'); return; }
   document.getElementById('prepayForm').reset();
-  document.getElementById('prepayId').value = id;
-  document.getElementById('prepayInfo').textContent =
-    `${r.lender} (${r.loan_type}) — outstanding ${fmt(r.outstanding_amount)}`;
+  // Populate the loan selector from the loaded rows.
+  document.getElementById('prepayLoan').innerHTML = rows.map(r =>
+    `<option value="${r.id}">${esc(r.lender)} (${esc(r.loan_type)}) — outstanding ${fmt(r.outstanding_amount)}</option>`
+  ).join('');
+  document.getElementById('prepayLoan').value = selectedId ?? rows[0].id;
+  onPrepayLoanChange();
   document.getElementById('prepayDate').value = new Date().toISOString().slice(0, 10);
   // Populate payable accounts (bank / wallet).
   const accts = (await apiGet('/api/accounts')).filter(a => ['BANK', 'WALLET'].includes(a.account_type_code));
@@ -179,11 +196,14 @@ async function openPrepay(id) {
     accts.map(a => `<option value="${a.id}">${esc(a.name)} — ${fmt(a.current_balance)}</option>`).join('');
   openModal('prepayModal');
 }
+const openPrepay = (id) => openPrepayDialog(id);
+const openPrepayGeneral = () => openPrepayDialog();
+
 async function savePrepay(e) {
   e.preventDefault();
   const data = formToObject('prepayForm');
   try {
-    const res = await apiSend(`${API}/${data.id}/prepay`, 'POST',
+    const res = await apiSend(`${API}/${data.loan_id}/prepay`, 'POST',
       { account_id: data.account_id || null, amount: data.amount, date: data.date });
     closeModal('prepayModal');
     showToast('Prepaid — new outstanding ' + fmt(res.loan.outstanding_amount));

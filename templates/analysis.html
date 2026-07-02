@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Portfolio Analysis · FinTracker{% endblock %}
+{% block page_title %}AI Portfolio Analysis{% endblock %}
+
+{% block content %}
+<div class="section" style="margin-bottom:20px;">
+  <div class="section-header">
+    <span class="section-title">Mutual Fund Portfolio Auditor</span>
+    <button class="btn btn-primary" id="runBtn" onclick="runAnalysis()">🤖 Analyze Portfolio</button>
+  </div>
+  <p style="color:#6b7280;font-size:13px;margin:8px 0 12px;">
+    Sends your current mutual-fund holdings to Claude for a full audit (expense
+    ratios, 5-year CAGR, overlap, goal/risk fit) and stores each run so you can
+    compare over time. Requires <code>ANTHROPIC_API_KEY</code> on the server.
+    Runs can take a minute or two.
+  </p>
+
+  <details style="margin-bottom:8px;">
+    <summary style="cursor:pointer;color:#4CAF50;font-size:13px;">Paste 1Finance overlap (optional)</summary>
+    <textarea id="overlapText" rows="5" placeholder="Paste your 1Finance Portfolio Overlap result here (fund pairs + overlap %). Leave blank to skip overlap analysis."
+      style="width:100%;margin-top:8px;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-family:inherit;font-size:13px;"></textarea>
+  </details>
+
+  <div id="runStatus" style="display:none;color:#6b7280;font-size:13px;margin-top:8px;">
+    <span class="spinner"></span> Analyzing your portfolio… this may take a minute.
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:20px;">
+  <div class="section-header"><span class="section-title">Past Reports</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Run at</th><th>Summary</th><th>Status</th><th></th></tr></thead>
+      <tbody id="historyBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="chart-box" id="reportBox" style="display:none;">
+  <div class="chart-title" id="reportTitle">Report</div>
+  <div id="reportError" class="red" style="display:none;font-size:13px;margin-bottom:8px;"></div>
+  <iframe id="reportFrame" sandbox="allow-scripts"
+    style="width:100%;height:80vh;border:1px solid #e5e7eb;border-radius:8px;background:#fff;"></iframe>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid #d1d5db;border-top-color:#4CAF50;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+<script>
+async function loadHistory() {
+  const rows = await apiGet('/api/analysis');
+  const body = document.getElementById('historyBody');
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty">No reports yet — click Analyze Portfolio.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => {
+    const badge = r.status === 'ok' ? 'badge-green' : 'badge-red';
+    return `<tr>
+      <td>${fmtDate(r.created_at)}</td>
+      <td>${esc(r.summary || '—')}</td>
+      <td><span class="badge ${badge}">${esc(r.status)}</span></td>
+      <td style="text-align:right"><button class="btn btn-secondary" onclick="viewReport(${r.id})">View</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function showReport(r) {
+  const box = document.getElementById('reportBox');
+  const err = document.getElementById('reportError');
+  const frame = document.getElementById('reportFrame');
+  document.getElementById('reportTitle').textContent = 'Report · ' + fmtDate(r.created_at);
+  box.style.display = 'block';
+  if (r.status === 'ok' && r.report_html) {
+    err.style.display = 'none';
+    frame.style.display = 'block';
+    frame.srcdoc = r.report_html;
+  } else {
+    frame.style.display = 'none';
+    err.style.display = 'block';
+    err.textContent = r.error || 'No report content was returned.';
+  }
+  box.scrollIntoView({ behavior: 'smooth' });
+}
+
+async function viewReport(id) {
+  try {
+    showReport(await apiGet('/api/analysis/' + id));
+  } catch (e) {
+    showToast('Failed to load report', 'error');
+  }
+}
+
+async function runAnalysis() {
+  const btn = document.getElementById('runBtn');
+  const status = document.getElementById('runStatus');
+  btn.disabled = true;
+  status.style.display = 'block';
+  try {
+    const overlap = document.getElementById('overlapText').value;
+    const r = await apiSend('/api/analysis/run', 'POST', { overlap_text: overlap });
+    await loadHistory();
+    showReport(r);
+    showToast(r.status === 'ok' ? 'Analysis complete' : 'Analysis finished with an error', r.status === 'ok' ? 'success' : 'error');
+  } catch (e) {
+    let msg = 'Analysis failed';
+    try { msg = JSON.parse(e.message).error || msg; } catch (_) {}
+    showToast(msg, 'error');
+  } finally {
+    btn.disabled = false;
+    status.style.display = 'none';
+  }
+}
+
+loadHistory().catch(() => showToast('Failed to load history', 'error'));
+</script>
+{% endblock %}

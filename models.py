@@ -499,6 +499,37 @@ class Expense(db.Model):
         }
 
 
+class AnalysisReport(db.Model):
+    """One AI portfolio-analysis run. Stored so the user can compare periodic
+    audits over time. `report_html` is a self-contained HTML fragment rendered
+    in a sandboxed iframe on the analysis page."""
+    __tablename__ = 'analysis_reports'
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.String(30), nullable=False)   # ISO-8601 UTC
+    model = db.Column(db.String(60))
+    holdings_snapshot = db.Column(db.Text)                  # JSON of analyzed holdings
+    overlap_input = db.Column(db.Text)                      # optional pasted 1Finance overlap
+    report_html = db.Column(db.Text)                        # the rendered dashboard
+    summary = db.Column(db.String(300))                    # short one-line description
+    status = db.Column(db.String(10), default='ok')        # ok | error
+    error = db.Column(db.Text)
+
+    def to_dict(self, include_html=False):
+        d = {
+            'id': self.id,
+            'created_at': self.created_at,
+            'model': self.model,
+            'summary': self.summary,
+            'status': self.status,
+            'error': self.error,
+        }
+        if include_html:
+            d['report_html'] = self.report_html or ''
+            d['overlap_input'] = self.overlap_input or ''
+            d['holdings_snapshot'] = self.holdings_snapshot or ''
+        return d
+
+
 class Transfer(db.Model):
     __tablename__ = 'transfers'
     id = db.Column(db.Integer, primary_key=True)

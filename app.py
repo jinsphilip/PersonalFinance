@@ -8,11 +8,12 @@ from models import (
     db, MutualFund, Stock, BankAccount, Loan, ChitFund, FixedDeposit,
     CreditGiven, Income, Expense, Transfer,
     Account, Transaction, AccountTypeMaster, TransactionCategoryMaster, StagedTransaction,
-    NetWorthSnapshot,
+    NetWorthSnapshot, AnalysisReport,
 )
 import prices
 import services
 import ingestion
+import analysis
 
 # When packaged as a standalone executable (PyInstaller), bundled files live in a
 # temporary extraction dir exposed as sys._MEIPASS, while the database must be stored
@@ -231,6 +232,10 @@ def credits_page():
 @app.route('/transfers')
 def transactions_page():
     return render_template('transactions.html')
+
+@app.route('/analysis')
+def analysis_page():
+    return render_template('analysis.html')
 
 @app.route('/import')
 def import_page():
@@ -586,6 +591,30 @@ def api_mutual_funds_buy():
     acct = _invest_in_fund(mf, amount, nav, data.get('account_id'), data.get('date') or date.today().isoformat())
     db.session.commit()
     return jsonify({'fund': mf.to_dict(), 'account': acct.to_dict() if acct else None}), 201
+
+
+# ─── AI portfolio analysis ───────────────────────────────────────────────────
+
+@app.route('/api/analysis', methods=['GET'])
+def api_analysis_list():
+    reports = AnalysisReport.query.order_by(AnalysisReport.id.desc()).all()
+    return jsonify([r.to_dict() for r in reports])
+
+
+@app.route('/api/analysis/<int:id>', methods=['GET'])
+def api_analysis_get(id):
+    r = AnalysisReport.query.get_or_404(id)
+    return jsonify(r.to_dict(include_html=True))
+
+
+@app.route('/api/analysis/run', methods=['POST'])
+def api_analysis_run():
+    data = request.json or {}
+    try:
+        report = analysis.run_portfolio_analysis(overlap_text=data.get('overlap_text', ''))
+    except analysis.AnalysisError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify(report.to_dict(include_html=True)), 201
 
 
 # ─── Stocks ────────────────────────────────────────────────────────────────────

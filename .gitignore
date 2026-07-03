@@ -17,8 +17,9 @@ build/
 dist/
 *.spec
 
-# Secrets — local API key file (never commit)
+# Secrets — local API key file + session secret (never commit)
 set_api_key.bat
+.flask_secret
 
 # OS / editor
 .DS_Store

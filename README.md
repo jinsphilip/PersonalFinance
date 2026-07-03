@@ -62,6 +62,11 @@ The app runs on your PC and can be opened from a phone. There are two levels.
 This exposes your PC's app over the internet, so **set a login password first**
 (see below). Then use a tunnel; the app only needs to listen on `localhost:5000`.
 
+**One-click (`run_remote.bat`):** after setting `FINTRACKER_PASSWORD` and
+installing `cloudflared`, just run **`run_remote.bat`** — it starts the app and
+opens the public tunnel together, refusing to run if no password is set. Or do
+it manually:
+
 **Cloudflare Tunnel (free, recommended):**
 1. Install `cloudflared` (Windows: `winget install --id Cloudflare.cloudflared`,
    or download from Cloudflare).

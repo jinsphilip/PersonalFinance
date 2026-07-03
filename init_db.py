@@ -1,4 +1,10 @@
-"""Populate database with realistic Indian financial sample data (ledger model)."""
+"""Populate database with realistic Indian financial sample data (ledger model).
+
+DESTRUCTIVE: this drops all tables and reseeds demo data. It refuses to run if
+the database already contains real data, unless you pass --force. This guard
+exists because an accidental run once wiped a user's real portfolio.
+"""
+import sys
 from datetime import date
 
 from app import app
@@ -8,7 +14,24 @@ from models import (
 )
 import services
 
+FORCE = '--force' in sys.argv
+
 with app.app_context():
+    has_data = False
+    try:
+        has_data = any([
+            Account.query.first(), Stock.query.first(), MutualFund.query.first(),
+            Loan.query.first(), FixedDeposit.query.first(), ChitFund.query.first(),
+        ])
+    except Exception:
+        has_data = False   # tables don't exist yet → safe to seed
+    if has_data and not FORCE:
+        print("[init_db] The database already contains data — refusing to wipe it.")
+        print("[init_db] This would DELETE your real portfolio and load demo data.")
+        print("[init_db] If you REALLY want to reset to sample data, run:")
+        print("[init_db]     python init_db.py --force")
+        sys.exit(0)
+
     db.drop_all()
     db.create_all()
     services.seed_masters()

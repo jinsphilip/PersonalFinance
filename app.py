@@ -31,7 +31,21 @@ if FROZEN:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
 else:
     app = Flask(__name__)
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///finance.db'
+    # Pin to ONE explicit absolute file so the DB can never silently move between
+    # the project root and instance/ across Flask-SQLAlchemy versions (which is
+    # what caused a fresh/empty DB to be read while real data sat in the other
+    # file). Prefer an existing finance.db; default to instance/finance.db.
+    _BASE = os.path.dirname(os.path.abspath(__file__))
+    _inst = os.path.join(_BASE, 'instance', 'finance.db')
+    _root = os.path.join(_BASE, 'finance.db')
+    if os.path.exists(_inst):
+        db_path = _inst
+    elif os.path.exists(_root):
+        db_path = _root
+    else:
+        os.makedirs(os.path.join(_BASE, 'instance'), exist_ok=True)
+        db_path = _inst
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Wait up to 30s for a busy lock instead of failing immediately (sqlite default 5s).
@@ -241,7 +255,33 @@ def migrate_legacy_if_needed():
     db.session.commit()
 
 
+def _backup_db(keep=10):
+    """Snapshot the DB into backups/ on every startup, keeping the newest `keep`.
+    A consistent copy via the sqlite backup API (handles WAL). Best-effort."""
+    try:
+        if not os.path.exists(db_path) or os.path.getsize(db_path) == 0:
+            return
+        import sqlite3 as _sq, glob as _glob, shutil as _shutil
+        from datetime import datetime as _dt
+        bdir = os.path.join(os.path.dirname(db_path) or '.', 'backups')
+        os.makedirs(bdir, exist_ok=True)
+        dest = os.path.join(bdir, 'finance-' + _dt.now().strftime('%Y%m%d-%H%M%S') + '.db')
+        src = _sq.connect(db_path)
+        dst = _sq.connect(dest)
+        with dst:
+            src.backup(dst)
+        src.close(); dst.close()
+        for old in sorted(_glob.glob(os.path.join(bdir, 'finance-*.db')))[:-keep]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+    except Exception:
+        pass   # never let a backup failure stop the app
+
+
 with app.app_context():
+    _backup_db()              # snapshot current data before doing anything
     db.create_all()
     ensure_legacy_columns()   # patch new columns onto pre-existing tables first
     services.seed_masters()

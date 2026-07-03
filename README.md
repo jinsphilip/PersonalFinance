@@ -105,7 +105,19 @@ Python · Flask · SQLAlchemy · SQLite · Chart.js · vanilla JS.
 
 See [`SPEC.md`](SPEC.md) for the full data model, API reference, and net-worth formula.
 
+## Your data & backups
+
+- Your data lives in **`instance/finance.db`** (gitignored, never committed). The
+  app pins this exact path so it can't drift between locations across library
+  versions.
+- On **every startup** the app writes a timestamped copy to
+  **`instance/backups/finance-<date-time>.db`**, keeping the newest 10. If
+  anything ever goes wrong, restore the latest good one (stop the app, replace
+  `instance/finance.db` with the backup).
+- **`init_db.py` is destructive** — it resets to sample data. It now **refuses to
+  run if real data exists**; a reset requires `python init_db.py --force`.
+
 ## Note
 
-Data lives in `finance.db`, which is gitignored and never committed. For local
-use no login is needed; enable `FINTRACKER_PASSWORD` before any internet exposure.
+For local use no login is needed; enable `FINTRACKER_PASSWORD` before any
+internet exposure (see Authentication).

@@ -74,8 +74,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Seed the database with sample data only on the very first run
-if not exist "finance.db" (
+REM Seed sample data ONLY on a genuinely fresh install (no DB in either
+REM location). init_db.py also self-guards and refuses to wipe existing data.
+set "HASDB="
+if exist "instance\finance.db" set "HASDB=1"
+if exist "finance.db" set "HASDB=1"
+if not defined HASDB (
     echo [setup] Initialising database with sample data...
     "%VPY%" init_db.py
 )

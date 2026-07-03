@@ -1,14 +1,14 @@
 @echo off
 REM ─────────────────────────────────────────────────────────────────────────────
-REM  Claude API key for the AI Portfolio Analysis feature.
-REM
-REM  SETUP:
-REM    1. Copy this file to  set_api_key.bat   (same folder as run.bat)
-REM    2. Replace the placeholder below with your real key from
-REM       https://console.anthropic.com  ->  API Keys
-REM    3. Run run.bat as usual - it loads this automatically.
-REM
-REM  set_api_key.bat is git-ignored so your key is never committed.
+REM  Local secrets for FinTracker. Copy this file to  set_api_key.bat  (same
+REM  folder as run.bat) and fill in the values. run.bat loads it automatically.
+REM  set_api_key.bat is git-ignored so nothing here is ever committed.
 REM ─────────────────────────────────────────────────────────────────────────────
 
+REM 1. Claude API key for AI Portfolio Analysis (https://console.anthropic.com -> API Keys)
 set "ANTHROPIC_API_KEY=sk-ant-your-key-here"
+
+REM 2. Login password. REQUIRED before exposing the app to the internet (tunnel).
+REM    When set, every page asks for this password. Leave blank/removed for
+REM    local-only desktop use with no login. Use a strong password.
+set "FINTRACKER_PASSWORD=choose-a-strong-password"

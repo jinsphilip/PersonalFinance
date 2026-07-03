@@ -1,9 +1,9 @@
 import os
 import sys
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session, redirect
 from models import (
     db, MutualFund, Stock, BankAccount, Loan, ChitFund, FixedDeposit,
     CreditGiven, Income, Expense, Transfer,
@@ -37,6 +37,51 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Wait up to 30s for a busy lock instead of failing immediately (sqlite default 5s).
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'timeout': 30}}
 db.init_app(app)
+
+
+# ─── Authentication (session login) ──────────────────────────────────────────
+# A password gate for exposing the app beyond localhost (e.g. via a tunnel).
+# It is OFF by default so local desktop use is frictionless: set the env var
+# FINTRACKER_PASSWORD to turn it on. The session secret is persisted so logins
+# survive restarts.
+_WRITABLE_DIR = APP_DIR if 'APP_DIR' in dir() else os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_or_create_secret():
+    path = os.path.join(_WRITABLE_DIR, '.flask_secret')
+    try:
+        with open(path) as fh:
+            key = fh.read().strip()
+            if key:
+                return key
+    except OSError:
+        pass
+    import secrets as _secrets
+    key = _secrets.token_hex(32)
+    try:
+        with open(path, 'w') as fh:
+            fh.write(key)
+    except OSError:
+        pass
+    return key
+
+
+app.secret_key = os.environ.get('FINTRACKER_SECRET') or _load_or_create_secret()
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+APP_PASSWORD = os.environ.get('FINTRACKER_PASSWORD', '')
+
+
+@app.before_request
+def _require_login():
+    if not APP_PASSWORD:
+        return  # auth disabled — no password configured (local desktop use)
+    if request.endpoint == 'static' or request.path.startswith('/login'):
+        return
+    if session.get('authed'):
+        return
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'unauthorized'}), 401
+    return redirect('/login')
 
 
 # Every new SQLite connection: enable WAL (readers don't block the writer) and a
@@ -244,6 +289,26 @@ def credits_page():
 @app.route('/transfers')
 def transactions_page():
     return render_template('transactions.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if not APP_PASSWORD:
+        return redirect('/')            # auth disabled
+    error = ''
+    if request.method == 'POST':
+        if request.form.get('password') == APP_PASSWORD:
+            session.permanent = True
+            session['authed'] = True
+            return redirect('/')
+        error = 'Incorrect password'
+    return render_template('login.html', error=error)
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/login')
+
 
 @app.route('/analysis')
 def analysis_page():

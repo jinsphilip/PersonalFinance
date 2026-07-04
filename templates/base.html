@@ -2,86 +2,86 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}Personal Finance Tracker{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#16a34a" />
+  <title>{% block title %}FinTracker{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}" />
   <script src="/static/chart.umd.min.js"></script>
 </head>
 <body>
+  {% set nav = [
+    {'path': '/',            'label': 'Dashboard',        'icon': '📊', 'primary': True},
+    {'path': '/accounts',    'label': 'Accounts',         'icon': '🏦', 'primary': True},
+    {'path': '/transactions','label': 'Transactions',     'icon': '↔️', 'primary': True},
+    {'path': '/stocks',      'label': 'Stocks',           'icon': '📈', 'primary': True},
+    {'path': '/mutual-funds','label': 'Mutual Funds',     'icon': '📉', 'primary': False},
+    {'path': '/fixed-deposits','label': 'Fixed Deposits', 'icon': '💵', 'primary': False},
+    {'path': '/chit-funds',  'label': 'Chit Funds',       'icon': '💰', 'primary': False},
+    {'path': '/loans',       'label': 'Loans',            'icon': '🏠', 'primary': False},
+    {'path': '/credits',     'label': 'Credits Given',    'icon': '🤝', 'primary': False},
+    {'path': '/import',      'label': 'Statement Import', 'icon': '📄', 'primary': False},
+    {'path': '/analysis',    'label': 'Portfolio Analysis','icon': '🤖','primary': False},
+  ] %}
+  {% set active = request.path %}
+
   <div class="layout">
-    <!-- Backdrop shown behind the drawer on mobile -->
-    <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar(false)"></div>
-    <!-- Sidebar -->
+    <div class="backdrop" onclick="closeMenus()"></div>
+
+    <!-- Sidebar (desktop) / drawer (tablet) -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
         <span class="brand-icon">₹</span>
         <span class="brand-name">FinTracker</span>
       </div>
       <nav class="sidebar-nav">
-        <a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}">
-          <span class="nav-icon">&#9783;</span> Dashboard
+        {% for n in nav %}
+        <a href="{{ n.path }}" class="nav-item {% if active == n.path or (n.path=='/transactions' and active in ['/expenses','/transfers','/income']) or (n.path=='/accounts' and active=='/bank-accounts') %}active{% endif %}">
+          <span class="nav-icon">{{ n.icon }}</span> {{ n.label }}
         </a>
-        <a href="/accounts" class="nav-item {% if request.path in ['/accounts', '/bank-accounts'] %}active{% endif %}">
-          <span class="nav-icon">&#127974;</span> Accounts
-        </a>
-        <a href="/transactions" class="nav-item {% if request.path in ['/transactions', '/expenses', '/transfers', '/income'] %}active{% endif %}">
-          <span class="nav-icon">&#8644;</span> Transactions
-        </a>
-        <a href="/import" class="nav-item {% if request.path == '/import' %}active{% endif %}">
-          <span class="nav-icon">&#128196;</span> Statement Import
-        </a>
-        <a href="/mutual-funds" class="nav-item {% if request.path == '/mutual-funds' %}active{% endif %}">
-          <span class="nav-icon">&#128200;</span> Mutual Funds
-        </a>
-        <a href="/analysis" class="nav-item {% if request.path == '/analysis' %}active{% endif %}">
-          <span class="nav-icon">&#129302;</span> Portfolio Analysis
-        </a>
-        <a href="/stocks" class="nav-item {% if request.path == '/stocks' %}active{% endif %}">
-          <span class="nav-icon">&#128202;</span> Stocks
-        </a>
-        <a href="/fixed-deposits" class="nav-item {% if request.path == '/fixed-deposits' %}active{% endif %}">
-          <span class="nav-icon">&#128181;</span> Fixed Deposits
-        </a>
-        <a href="/chit-funds" class="nav-item {% if request.path == '/chit-funds' %}active{% endif %}">
-          <span class="nav-icon">&#128176;</span> Chit Funds
-        </a>
-        <a href="/loans" class="nav-item {% if request.path == '/loans' %}active{% endif %}">
-          <span class="nav-icon">&#127968;</span> Loans
-        </a>
-        <a href="/credits" class="nav-item {% if request.path == '/credits' %}active{% endif %}">
-          <span class="nav-icon">&#129309;</span> Credits Given
-        </a>
-        <a href="/logout" class="nav-item">
-          <span class="nav-icon">&#128682;</span> Logout
-        </a>
+        {% endfor %}
       </nav>
+      <div class="sidebar-foot">
+        <a href="/logout" class="nav-item"><span class="nav-icon">🚪</span> Logout</a>
+      </div>
     </aside>
 
-    <!-- Main content -->
-    <main class="main-content">
+    <!-- Main -->
+    <main class="main">
       <header class="topbar">
-        <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Menu">&#9776;</button>
+        <button class="menu-toggle" onclick="toggleDrawer()" aria-label="Menu">☰</button>
         <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
-        <div class="topbar-right">
-          <span class="date-display" id="currentDate"></span>
-        </div>
+        <div class="topbar-right"><span class="date-display" id="currentDate"></span></div>
       </header>
-      <div class="content-body">
+      <div class="content">
         {% block content %}{% endblock %}
       </div>
     </main>
   </div>
 
-  <!-- Generic Delete Confirmation Modal -->
+  <!-- Mobile bottom tab bar -->
+  <nav class="tabbar">
+    {% for n in nav if n.primary %}
+    <a href="{{ n.path }}" class="tab {% if active == n.path or (n.path=='/transactions' and active in ['/expenses','/transfers','/income']) or (n.path=='/accounts' and active=='/bank-accounts') %}active{% endif %}">
+      <span class="tab-ic">{{ n.icon }}</span>{{ n.label.split(' ')[0] }}
+    </a>
+    {% endfor %}
+    <a href="#" class="tab" onclick="openMore(event)"><span class="tab-ic">☰</span>More</a>
+  </nav>
+
+  <!-- Mobile "More" sheet -->
+  <div class="more-sheet" id="moreSheet">
+    <div class="more-grip"></div>
+    {% for n in nav if not n.primary %}
+    <a href="{{ n.path }}" class="nav-item {% if active == n.path %}active{% endif %}"><span class="nav-icon">{{ n.icon }}</span> {{ n.label }}</a>
+    {% endfor %}
+    <a href="/logout" class="nav-item"><span class="nav-icon">🚪</span> Logout</a>
+  </div>
+
+  <!-- Generic delete confirmation modal -->
   <div class="modal-overlay" id="deleteModal" style="display:none;">
     <div class="modal modal-sm">
-      <div class="modal-header">
-        <h3>Confirm Delete</h3>
-        <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p>Are you sure you want to delete this entry? This action cannot be undone.</p>
-      </div>
+      <div class="modal-header"><h3>Confirm Delete</h3><button class="modal-close" onclick="closeDeleteModal()">&times;</button></div>
+      <div class="modal-body"><p>Are you sure you want to delete this entry? This action cannot be undone.</p></div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
         <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
@@ -89,22 +89,14 @@
     </div>
   </div>
 
-  <!-- Toast notification -->
   <div class="toast" id="toast"></div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{ asset_v }}"></script>
   <script>
-    document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-IN', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-    });
-    // Mobile off-canvas sidebar
-    function toggleSidebar(force) {
-      const open = force === undefined ? !document.body.classList.contains('sidebar-open') : force;
-      document.body.classList.toggle('sidebar-open', open);
-    }
-    // Tapping a nav link closes the drawer (each page is a full reload anyway)
-    document.querySelectorAll('.sidebar-nav .nav-item').forEach(a =>
-      a.addEventListener('click', () => toggleSidebar(false)));
+    document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    function toggleDrawer() { document.body.classList.toggle('drawer-open'); document.body.classList.remove('more-open'); }
+    function openMore(e) { if (e) e.preventDefault(); document.body.classList.add('more-open'); }
+    function closeMenus() { document.body.classList.remove('drawer-open', 'more-open'); }
   </script>
   {% block scripts %}{% endblock %}
 </body>

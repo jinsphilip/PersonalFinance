@@ -16,7 +16,7 @@
     <button class="btn btn-primary" onclick="openAdd()">+ Add Credit</button>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="rtable">
       <thead><tr>
         <th>Person</th><th style="text-align:right">Lent</th><th style="text-align:right">Outstanding</th>
         <th>Date Given</th><th>Status</th><th>Notes</th><th></th>
@@ -110,13 +110,13 @@ async function load() {
       ? '<span class="badge badge-green">Returned</span>'
       : '<span class="badge badge-orange">Outstanding</span>';
     return `<tr>
-      <td>${esc(r.person_name)}</td>
-      <td style="text-align:right">${fmt(r.amount)}</td>
-      <td style="text-align:right" class="${settled?'gain':'loss'}">${fmt(r.outstanding || 0)}</td>
-      <td>${fmtDate(r.date_given)}</td>
-      <td>${badge}</td>
-      <td style="max-width:240px;color:#6b7280;font-size:13px">${esc(r.notes) || '—'}</td>
-      <td><div class="actions">
+      <td data-label="Person">${esc(r.person_name)}</td>
+      <td data-label="Lent" style="text-align:right">${fmt(r.amount)}</td>
+      <td data-label="Outstanding" style="text-align:right" class="${settled?'gain':'loss'}">${fmt(r.outstanding || 0)}</td>
+      <td data-label="Date Given">${fmtDate(r.date_given)}</td>
+      <td data-label="Status">${badge}</td>
+      <td data-label="Notes" style="max-width:240px;color:#6b7280;font-size:13px">${esc(r.notes) || '—'}</td>
+      <td data-label="Actions"><div class="actions">
         ${settled ? '' : `<button class="btn-icon" title="Record recovery" onclick='openRecover(${r.id})'>&#8617;</button>`}
         <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
         <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>

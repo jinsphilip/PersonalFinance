@@ -16,7 +16,7 @@
     <button class="btn btn-primary" onclick="openAdd()">+ Add Chit</button>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="rtable">
       <thead><tr>
         <th>Chit Name</th><th>Organizer</th><th style="text-align:right">Total Value</th>
         <th style="text-align:right">Monthly</th><th style="text-align:right">Tenure</th>
@@ -126,13 +126,13 @@ async function load() {
       ? `<span class="badge badge-green">Auctioned</span> <span style="color:#6b7280;font-size:12px">${fmt(r.auction_amount)} · ${fmtDate(r.auction_date)}</span>`
       : `<span class="badge badge-orange">Pending</span>`;
     return `<tr>
-      <td>${esc(r.chit_name)}</td>
-      <td>${esc(r.organizer) || '—'}</td>
-      <td style="text-align:right">${fmt(r.total_value)}</td>
-      <td style="text-align:right">${fmt(r.monthly_contribution)}</td>
-      <td style="text-align:right">${r.tenure_months} mo</td>
-      <td>${status}</td>
-      <td><div class="actions">
+      <td data-label="Chit Name">${esc(r.chit_name)}</td>
+      <td data-label="Organizer">${esc(r.organizer) || '—'}</td>
+      <td data-label="Total Value" style="text-align:right">${fmt(r.total_value)}</td>
+      <td data-label="Monthly" style="text-align:right">${fmt(r.monthly_contribution)}</td>
+      <td data-label="Tenure" style="text-align:right">${r.tenure_months} mo</td>
+      <td data-label="Status">${status}</td>
+      <td data-label="Actions"><div class="actions">
         ${r.auction_status !== 'auctioned' ? `<button class="btn-icon" title="Record auction" onclick='openAuction(${r.id})'>&#128296;</button>` : ''}
         <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
         <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>

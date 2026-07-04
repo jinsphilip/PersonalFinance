@@ -24,7 +24,7 @@
     </div>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="rtable">
       <thead><tr>
         <th>Date</th><th>Category</th><th>From</th><th></th><th>To</th>
         <th>Description</th><th style="text-align:right">Amount</th><th></th>
@@ -175,14 +175,14 @@ function render() {
     const amtCls = r.direction === 'INFLOW' ? 'gain' : (r.direction === 'OUTFLOW' ? 'loss' : '');
     const sign = r.direction === 'INFLOW' ? '+' : (r.direction === 'OUTFLOW' ? '−' : '');
     return `<tr>
-      <td>${fmtDate(r.transaction_date)}</td>
-      <td><span class="badge ${DIR_BADGE[r.direction]||'badge-gray'}">${esc(r.category_name)}</span></td>
-      <td>${r.from_account_name ? esc(r.from_account_name) : '—'}</td>
-      <td class="transfer-arrow" style="text-align:center">${r.from_account_name && r.to_account_name ? '&#8594;' : ''}</td>
-      <td>${r.to_account_name ? esc(r.to_account_name) : '—'}</td>
-      <td style="color:#6b7280;font-size:13px">${esc(r.description)||'—'}</td>
-      <td style="text-align:right;font-weight:600" class="${amtCls}">${sign}${fmt(r.amount)}</td>
-      <td><div class="actions">
+      <td data-label="Date">${fmtDate(r.transaction_date)}</td>
+      <td data-label="Category"><span class="badge ${DIR_BADGE[r.direction]||'badge-gray'}">${esc(r.category_name)}</span></td>
+      <td data-label="From">${r.from_account_name ? esc(r.from_account_name) : '—'}</td>
+      <td data-label="" class="transfer-arrow" style="text-align:center">${r.from_account_name && r.to_account_name ? '&#8594;' : ''}</td>
+      <td data-label="To">${r.to_account_name ? esc(r.to_account_name) : '—'}</td>
+      <td data-label="Description" style="color:#6b7280;font-size:13px">${esc(r.description)||'—'}</td>
+      <td data-label="Amount" style="text-align:right;font-weight:600" class="${amtCls}">${sign}${fmt(r.amount)}</td>
+      <td data-label="Actions"><div class="actions">
         <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
         <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
       </div></td>

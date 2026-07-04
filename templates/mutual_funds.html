@@ -161,7 +161,7 @@ async function load() {
             · Cur ${fmt(pCur)} · ${gainPctBadge(pPct)}</span>
         </div>
         <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
-          <div class="table-wrap"><table>
+          <div class="table-wrap"><table class="rtable">
             <thead><tr>
               <th>Fund</th><th style="text-align:right">Units</th>
               <th style="text-align:right">Avg NAV</th><th style="text-align:right">Cur NAV</th>
@@ -178,14 +178,14 @@ async function load() {
               }
               return `
               <tr>
-                <td>${esc(r.fund_name)}${sipTag}</td>
-                <td style="text-align:right">${fmtNum(r.units, 3)}</td>
-                <td style="text-align:right">${fmtNum(r.avg_nav)}</td>
-                <td style="text-align:right">${fmtNum(r.current_nav)}</td>
-                <td style="text-align:right">${fmt(r.invested_value)}</td>
-                <td style="text-align:right">${fmt(r.current_value)}</td>
-                <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
-                <td><div class="actions">
+                <td data-label="Fund">${esc(r.fund_name)}${sipTag}</td>
+                <td data-label="Units" style="text-align:right">${fmtNum(r.units, 3)}</td>
+                <td data-label="Avg NAV" style="text-align:right">${fmtNum(r.avg_nav)}</td>
+                <td data-label="Cur NAV" style="text-align:right">${fmtNum(r.current_nav)}</td>
+                <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
+                <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
+                <td data-label="Gain/Loss" style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
+                <td data-label="Actions"><div class="actions">
                   <button class="btn-icon" title="Invest from bank" onclick='openInvest(${r.id})'>&#8377;</button>
                   <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
                   <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>

@@ -9,8 +9,10 @@
 </head>
 <body>
   <div class="layout">
+    <!-- Backdrop shown behind the drawer on mobile -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar(false)"></div>
     <!-- Sidebar -->
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
         <span class="brand-icon">₹</span>
         <span class="brand-name">FinTracker</span>
@@ -58,6 +60,7 @@
     <!-- Main content -->
     <main class="main-content">
       <header class="topbar">
+        <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Menu">&#9776;</button>
         <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
         <div class="topbar-right">
           <span class="date-display" id="currentDate"></span>
@@ -94,6 +97,14 @@
     document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-IN', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     });
+    // Mobile off-canvas sidebar
+    function toggleSidebar(force) {
+      const open = force === undefined ? !document.body.classList.contains('sidebar-open') : force;
+      document.body.classList.toggle('sidebar-open', open);
+    }
+    // Tapping a nav link closes the drawer (each page is a full reload anyway)
+    document.querySelectorAll('.sidebar-nav .nav-item').forEach(a =>
+      a.addEventListener('click', () => toggleSidebar(false)));
   </script>
   {% block scripts %}{% endblock %}
 </body>

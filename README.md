@@ -86,7 +86,10 @@ online without your PC, host it (Render/Railway/Fly.io/PythonAnywhere) instead.
 ## Authentication (login password)
 
 A session login is built in and **off by default** (frictionless local use).
-Turn it on by setting an environment variable before launching — either in your
+The password is read from the `FINTRACKER_PASSWORD` **environment variable**, or —
+if that's not set — directly from your `set_api_key.bat` file, so the login works
+no matter how you launch (`run.bat`, `run_remote.bat`, or a bare `python app.py`).
+Turn it on by setting the value — either in your
 `set_api_key.bat` (loaded by `run.bat`) or the shell:
 
 ```

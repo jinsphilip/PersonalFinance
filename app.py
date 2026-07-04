@@ -80,9 +80,29 @@ def _load_or_create_secret():
     return key
 
 
+def _password_from_file():
+    """Fallback: read FINTRACKER_PASSWORD out of set_api_key.bat so the login
+    works no matter how the app is launched (even a bare `python app.py` in a
+    shell that never ran set_api_key.bat)."""
+    path = os.path.join(_WRITABLE_DIR, 'set_api_key.bat')
+    try:
+        import re
+        with open(path, encoding='utf-8', errors='ignore') as fh:
+            text = fh.read()
+        m = re.search(r'FINTRACKER_PASSWORD\s*=\s*"?([^"\r\n]+)"?', text, re.IGNORECASE)
+        if not m:
+            return ''
+        val = m.group(1).strip().strip('"').strip()
+        if not val or val == 'choose-a-strong-password':
+            return ''   # example placeholder → treat as not set
+        return val
+    except OSError:
+        return ''
+
+
 app.secret_key = os.environ.get('FINTRACKER_SECRET') or _load_or_create_secret()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
-APP_PASSWORD = os.environ.get('FINTRACKER_PASSWORD', '')
+APP_PASSWORD = os.environ.get('FINTRACKER_PASSWORD') or _password_from_file()
 
 
 def _is_local_request():

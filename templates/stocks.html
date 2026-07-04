@@ -186,19 +186,19 @@ async function load() {
             · Cur ${fmt(aCur)} · ${gainPctBadge(aPct)}${isIncluded ? '' : ' · <span style="color:#9ca3af">excluded</span>'}</span>
         </div>
         <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
-          <div class="table-wrap"><table>
+          <div class="table-wrap"><table class="rtable">
             <thead>${headerRow()}</thead>
             <tbody>${items.map(r => `
               <tr>
-                <td>${esc(r.company_name)}</td>
-                <td>${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''}</td>
-                <td style="text-align:right">${r.quantity}</td>
-                <td style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
-                <td style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
-                <td style="text-align:right">${fmt(r.invested_value)}</td>
-                <td style="text-align:right">${fmt(r.current_value)}</td>
-                <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
-                <td><div class="actions">
+                <td data-label="Company">${esc(r.company_name)}</td>
+                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''}</td>
+                <td data-label="Qty" style="text-align:right">${r.quantity}</td>
+                <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
+                <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
+                <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
+                <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
+                <td data-label="Gain/Loss" style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
+                <td data-label="Actions"><div class="actions">
                   <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
                   <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
                 </div></td>
@@ -257,19 +257,19 @@ function renderConsolidated(wrap, included) {
     return `<th style="text-align:${c.align};cursor:pointer;user-select:none" onclick="sortBy('${c.key}')">${c.label}${arrow}</th>`;
   }).join('');
   wrap.innerHTML = `
-    <div class="table-wrap"><table>
+    <div class="table-wrap"><table class="rtable">
       <thead><tr>${header}<th>Demats</th></tr></thead>
       <tbody>${items.map(r => `
         <tr>
-          <td>${esc(r.company_name)}</td>
-          <td>${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''}</td>
-          <td style="text-align:right">${r.quantity}</td>
-          <td style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
-          <td style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
-          <td style="text-align:right">${fmt(r.invested_value)}</td>
-          <td style="text-align:right">${fmt(r.current_value)}</td>
-          <td style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
-          <td style="font-size:12px;color:#6b7280">${esc(r.demats.join(' · '))}</td>
+          <td data-label="Company">${esc(r.company_name)}</td>
+          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''}</td>
+          <td data-label="Qty" style="text-align:right">${r.quantity}</td>
+          <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
+          <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
+          <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
+          <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
+          <td data-label="Gain/Loss" style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
+          <td data-label="Demats" style="font-size:12px;color:#6b7280">${esc(r.demats.join(' · '))}</td>
         </tr>`).join('')}</tbody>
     </table></div>
     <p style="font-size:12px;color:#9ca3af;margin-top:10px;">Rows are aggregated across demats. Switch to By broker view to edit individual holdings.</p>`;

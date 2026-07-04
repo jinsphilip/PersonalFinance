@@ -17,7 +17,7 @@
     <button class="btn btn-primary" onclick="openAdd()">+ Add FD</button>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="rtable">
       <thead><tr>
         <th>Bank</th><th>Account</th><th style="text-align:right">Principal</th>
         <th style="text-align:right">Rate</th><th style="text-align:right">Current Value</th>
@@ -91,15 +91,15 @@ async function load() {
       : (r.days_to_maturity ? `<span style="color:#9ca3af;font-size:12px">${r.days_to_maturity} days left</span>` : '');
     return `
     <tr>
-      <td>${esc(r.bank_name)}</td>
-      <td>${esc(r.account_number) || '—'}</td>
-      <td style="text-align:right">${fmt(r.principal_amount)}</td>
-      <td style="text-align:right">${fmtNum(r.interest_rate)}%</td>
-      <td style="text-align:right" class="gain">${fmt(r.current_value)}</td>
-      <td style="text-align:right">${fmt(r.maturity_amount)}</td>
-      <td>${fmtDate(r.maturity_date)}<br>${matInfo}</td>
-      <td><span class="badge badge-gray">${esc(r.fd_type)}</span></td>
-      <td><div class="actions">
+      <td data-label="Bank">${esc(r.bank_name)}</td>
+      <td data-label="Account">${esc(r.account_number) || '—'}</td>
+      <td data-label="Principal" style="text-align:right">${fmt(r.principal_amount)}</td>
+      <td data-label="Rate" style="text-align:right">${fmtNum(r.interest_rate)}%</td>
+      <td data-label="Current Value" style="text-align:right" class="gain">${fmt(r.current_value)}</td>
+      <td data-label="Maturity Amt" style="text-align:right">${fmt(r.maturity_amount)}</td>
+      <td data-label="Maturity Date">${fmtDate(r.maturity_date)}<br>${matInfo}</td>
+      <td data-label="Type"><span class="badge badge-gray">${esc(r.fd_type)}</span></td>
+      <td data-label="Actions"><div class="actions">
         <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
         <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>
       </div></td>

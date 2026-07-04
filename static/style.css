@@ -227,6 +227,11 @@ tbody tr:hover td { background: var(--surface-2); }
   .date-display { display: none; }
   .cards-row { grid-template-columns: 1fr 1fr; gap: 10px; }
   .form-row { grid-template-columns: 1fr; }
+
+  /* Stack section-header controls so titles/filters/buttons never overlap */
+  .section-header { flex-direction: column; align-items: stretch; gap: 10px; }
+  .section-header > div { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .section-header select, .section-header input, .section-header .btn { flex: 1 1 140px; min-width: 0; }
   .nw-value { font-size: 28px; }
   .nw-hero { padding: 20px; }
 

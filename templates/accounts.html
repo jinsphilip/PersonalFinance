@@ -16,7 +16,7 @@
     <button class="btn btn-primary" onclick="openAdd()">+ Add Account</button>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="rtable">
       <thead><tr>
         <th>Name</th><th>Type</th><th>Reference</th>
         <th style="text-align:right">Balance</th><th></th>
@@ -128,11 +128,11 @@ async function load() {
       <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>` :
       `<span style="color:#9ca3af;font-size:12px">auto</span>`;
     return `<tr>
-      <td>${esc(r.name)}${liab}</td>
-      <td><span class="badge ${TYPE_BADGE[r.account_type_code]||'badge-gray'}">${esc(r.account_type_name)}</span></td>
-      <td>${esc(r.meta) || '—'}</td>
-      <td style="text-align:right" class="${r.is_liability?'loss':'gain'}">${fmt(r.current_balance)}</td>
-      <td><div class="actions">${actions}</div></td>
+      <td data-label="Name">${esc(r.name)}${liab}</td>
+      <td data-label="Type"><span class="badge ${TYPE_BADGE[r.account_type_code]||'badge-gray'}">${esc(r.account_type_name)}</span></td>
+      <td data-label="Reference">${esc(r.meta) || '—'}</td>
+      <td data-label="Balance" style="text-align:right" class="${r.is_liability?'loss':'gain'}">${fmt(r.current_balance)}</td>
+      <td data-label=""><div class="actions">${actions}</div></td>
     </tr>`;
   }).join('');
 }

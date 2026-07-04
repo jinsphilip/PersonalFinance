@@ -19,7 +19,7 @@
     </div>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="rtable">
       <thead><tr>
         <th>Type</th><th>Lender</th><th style="text-align:right">Outstanding</th>
         <th style="text-align:right">EMI</th><th style="text-align:right">Advance</th>
@@ -126,21 +126,21 @@ async function load() {
   if (!rows.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">No loans yet.</td></tr>'; return; }
   tb.innerHTML = rows.map(r => `
     <tr>
-      <td><span class="badge badge-orange">${esc(r.loan_type)}</span></td>
-      <td>${esc(r.lender)}</td>
-      <td style="text-align:right" class="loss">${fmt(r.outstanding_amount)}</td>
-      <td style="text-align:right">${fmt(r.emi_amount)}</td>
-      <td style="text-align:right">${r.advance_amount ? fmt(r.advance_amount) : '—'}</td>
-      <td style="text-align:right;font-weight:600">${fmt(r.monthly_total)}</td>
-      <td style="text-align:right">${fmtNum(r.interest_rate)}%</td>
-      <td>${fmtDate(r.next_due_date)}</td>
-      <td>
+      <td data-label="Type"><span class="badge badge-orange">${esc(r.loan_type)}</span></td>
+      <td data-label="Lender">${esc(r.lender)}</td>
+      <td data-label="Outstanding" style="text-align:right" class="loss">${fmt(r.outstanding_amount)}</td>
+      <td data-label="EMI" style="text-align:right">${fmt(r.emi_amount)}</td>
+      <td data-label="Advance" style="text-align:right">${r.advance_amount ? fmt(r.advance_amount) : '—'}</td>
+      <td data-label="Monthly Total" style="text-align:right;font-weight:600">${fmt(r.monthly_total)}</td>
+      <td data-label="Rate" style="text-align:right">${fmtNum(r.interest_rate)}%</td>
+      <td data-label="Next Due">${fmtDate(r.next_due_date)}</td>
+      <td data-label="Payoff">
         <div class="loan-progress-wrap">
           <div class="loan-progress-bar"><div class="loan-progress-fill" style="width:${r.progress_pct}%;background:#4CAF50"></div></div>
           <div class="loan-progress-label">${fmtNum(r.progress_pct)}% paid</div>
         </div>
       </td>
-      <td><div class="actions">
+      <td data-label=""><div class="actions">
         <button class="btn-icon" title="Prepay" onclick='openPrepay(${r.id})'>₹</button>
         <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>
         <button class="btn-icon del" onclick='del(${r.id})'>🗑</button>

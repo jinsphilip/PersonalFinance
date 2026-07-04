@@ -182,6 +182,27 @@ def _sqlite_pragmas(dbapi_connection, _record):
         cur.close()
 
 
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0   # let asset-version query control caching
+
+
+def _asset_version():
+    """Max mtime of the CSS/JS so their ?v= changes when they change → browsers
+    fetch the new file automatically (no hard-refresh needed, esp. on mobile)."""
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+    latest = 0
+    for name in ('style.css', 'app.js'):
+        try:
+            latest = max(latest, int(os.path.getmtime(os.path.join(base, name))))
+        except OSError:
+            pass
+    return latest
+
+
+@app.context_processor
+def _inject_asset_v():
+    return {'asset_v': _asset_version()}
+
+
 @app.after_request
 def _no_cache_api(response):
     """Stop the browser from serving stale JSON after a mutation (e.g. a loan

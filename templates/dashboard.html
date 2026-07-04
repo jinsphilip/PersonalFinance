@@ -54,7 +54,7 @@
     <span class="section-title">Monthly Commitments (EMI · SIP · Chit)</span>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="rtable">
       <thead><tr>
         <th>Type</th><th>Name</th><th>Next Due</th><th style="text-align:right">Amount / month</th>
       </tr></thead>
@@ -94,7 +94,7 @@
     <a href="/income" class="btn btn-secondary">View all</a>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="rtable">
       <thead>
         <tr><th>Type</th><th>Source</th><th>Date</th><th style="text-align:right">Amount</th></tr>
       </thead>
@@ -129,10 +129,10 @@ async function loadDashboard() {
   } else {
     cb.innerHTML = cm.items.map(i => `
       <tr>
-        <td><span class="badge ${CM_BADGE[i.type] || 'badge-gray'}">${esc(i.type)}</span></td>
-        <td>${esc(i.name)}</td>
-        <td>${i.due ? fmtDate(i.due) : '—'}</td>
-        <td style="text-align:right;font-weight:600">${fmt(i.amount)}</td>
+        <td data-label="Type"><span class="badge ${CM_BADGE[i.type] || 'badge-gray'}">${esc(i.type)}</span></td>
+        <td data-label="Name">${esc(i.name)}</td>
+        <td data-label="Next Due">${i.due ? fmtDate(i.due) : '—'}</td>
+        <td data-label="Amount/mo" style="text-align:right;font-weight:600">${fmt(i.amount)}</td>
       </tr>`).join('');
   }
 
@@ -144,10 +144,10 @@ async function loadDashboard() {
     body.innerHTML = d.recent_income.map(i => {
       const badge = i.category_code === 'SALARY' ? 'badge-blue' : 'badge-green';
       return `<tr>
-        <td><span class="badge ${badge}">${esc(i.category_name)}</span></td>
-        <td>${esc(i.description) || esc(i.to_account_name) || '—'}</td>
-        <td>${fmtDate(i.transaction_date)}</td>
-        <td style="text-align:right" class="gain">${fmt(i.amount)}</td>
+        <td data-label="Type"><span class="badge ${badge}">${esc(i.category_name)}</span></td>
+        <td data-label="Source">${esc(i.description) || esc(i.to_account_name) || '—'}</td>
+        <td data-label="Date">${fmtDate(i.transaction_date)}</td>
+        <td data-label="Amount" style="text-align:right" class="gain">${fmt(i.amount)}</td>
       </tr>`;
     }).join('');
   }

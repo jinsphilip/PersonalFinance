@@ -80,29 +80,53 @@ def _load_or_create_secret():
     return key
 
 
-def _password_from_file():
-    """Fallback: read FINTRACKER_PASSWORD out of set_api_key.bat so the login
-    works no matter how the app is launched (even a bare `python app.py` in a
-    shell that never ran set_api_key.bat)."""
-    path = os.path.join(_WRITABLE_DIR, 'set_api_key.bat')
+_PW_PLACEHOLDER = 'choose-a-strong-password'
+
+
+def _read_text_any_encoding(path):
+    """Read a text file, tolerating UTF-8 (with/without BOM), UTF-16, or latin-1
+    (editors save .bat/.txt in various encodings). Returns '' if unreadable."""
     try:
-        import re
-        with open(path, encoding='utf-8', errors='ignore') as fh:
-            text = fh.read()
-        m = re.search(r'FINTRACKER_PASSWORD\s*=\s*"?([^"\r\n]+)"?', text, re.IGNORECASE)
-        if not m:
-            return ''
-        val = m.group(1).strip().strip('"').strip()
-        if not val or val == 'choose-a-strong-password':
-            return ''   # example placeholder → treat as not set
-        return val
+        with open(path, 'rb') as fh:
+            raw = fh.read()
     except OSError:
         return ''
+    for enc in ('utf-8-sig', 'utf-16', 'latin-1'):
+        try:
+            return raw.decode(enc)
+        except (UnicodeError, LookupError):
+            continue
+    return raw.decode('utf-8', errors='ignore')
+
+
+def _clean_pw(val):
+    val = (val or '').strip().strip('"').strip()
+    return '' if not val or val == _PW_PLACEHOLDER else val
+
+
+def _password_from_txt():
+    """Simplest option: a plain password.txt whose entire content is the password."""
+    return _clean_pw(_read_text_any_encoding(os.path.join(_WRITABLE_DIR, 'password.txt')))
+
+
+def _password_from_bat():
+    """Read FINTRACKER_PASSWORD out of set_api_key.bat (any encoding)."""
+    import re
+    text = _read_text_any_encoding(os.path.join(_WRITABLE_DIR, 'set_api_key.bat'))
+    m = re.search(r'FINTRACKER_PASSWORD\s*=\s*"?([^"\r\n]+)"?', text, re.IGNORECASE)
+    return _clean_pw(m.group(1)) if m else ''
+
+
+def _resolve_password():
+    """Login password from (in order): env var, password.txt, set_api_key.bat.
+    Works regardless of how the app is launched."""
+    return (os.environ.get('FINTRACKER_PASSWORD') or _password_from_txt()
+            or _password_from_bat())
 
 
 app.secret_key = os.environ.get('FINTRACKER_SECRET') or _load_or_create_secret()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
-APP_PASSWORD = os.environ.get('FINTRACKER_PASSWORD') or _password_from_file()
+APP_PASSWORD = _resolve_password()
 
 
 def _is_local_request():

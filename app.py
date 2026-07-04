@@ -85,10 +85,32 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 APP_PASSWORD = os.environ.get('FINTRACKER_PASSWORD', '')
 
 
+def _is_local_request():
+    """True only for genuine localhost access with no proxy/tunnel in front.
+    Tunnels (ngrok/cloudflared) reach a non-loopback Host and add X-Forwarded-*
+    headers, so this also defeats a spoofed `Host: localhost`."""
+    host = (request.host or '').split(':')[0].lower()
+    if host not in ('localhost', '127.0.0.1', '::1', '[::1]'):
+        return False
+    if request.headers.get('X-Forwarded-For') or request.headers.get('X-Forwarded-Host'):
+        return False
+    return True
+
+
 @app.before_request
 def _require_login():
     if not APP_PASSWORD:
-        return  # auth disabled — no password configured (local desktop use)
+        # No password configured: allow localhost (desktop), but FAIL CLOSED for
+        # anything arriving over a tunnel / from another host, so a forgotten
+        # password can never expose data publicly.
+        if _is_local_request():
+            return
+        return (
+            '<h2>Remote access is disabled</h2><p>This app is running without a '
+            'login password, so it only serves the local machine. To use it over '
+            'a tunnel or your network, set <code>FINTRACKER_PASSWORD</code> and '
+            'restart.</p>', 403
+        )
     if request.endpoint == 'static' or request.path.startswith('/login'):
         return
     if session.get('authed'):
@@ -279,6 +301,10 @@ def _backup_db(keep=10):
     except Exception:
         pass   # never let a backup failure stop the app
 
+
+if not APP_PASSWORD:
+    print('[warn] No FINTRACKER_PASSWORD set — remote/tunnel access is blocked; '
+          'localhost only. Set it to enable login + remote access.')
 
 with app.app_context():
     _backup_db()              # snapshot current data before doing anything

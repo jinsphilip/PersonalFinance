@@ -95,9 +95,15 @@ set "FINTRACKER_PASSWORD=your-strong-password"
 
 When set, every page requires the password (styled login page, stays signed in
 via a 30-day cookie; **Logout** is in the sidebar). APIs return 401 until you
-sign in. **Always set this before exposing the app through a tunnel.** The
-session secret is stored in a gitignored `.flask_secret` file so logins survive
-restarts.
+sign in. The session secret is stored in a gitignored `.flask_secret` file so
+logins survive restarts.
+
+**Fail-closed remote access:** if no `FINTRACKER_PASSWORD` is set, the app serves
+**localhost only** — any request arriving over a tunnel or from another machine
+(ngrok/Cloudflare/LAN) is blocked with a 403 until you set a password and
+restart. So a forgotten password can never expose your data publicly. Set the
+password (and use `run_remote.bat`, or export it before `python app.py`) to
+enable remote/LAN access.
 
 ## Tech
 

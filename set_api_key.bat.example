@@ -12,3 +12,7 @@ REM 2. Login password. REQUIRED before exposing the app to the internet (tunnel)
 REM    When set, every page asks for this password. Leave blank/removed for
 REM    local-only desktop use with no login. Use a strong password.
 set "FINTRACKER_PASSWORD=choose-a-strong-password"
+
+REM 3. Your ngrok static domain, used by run_remote.bat for a stable phone URL.
+REM    Create a free one at ngrok.com (Domains), then put it here (no https://).
+set "NGROK_DOMAIN=yourname.ngrok-free.dev"

@@ -1,8 +1,8 @@
 @echo off
 REM ─────────────────────────────────────────────────────────────────────────────
 REM  FinTracker - remote launcher (phone / any network)
-REM  Starts the app locally AND opens a public Cloudflare Tunnel so you can reach
-REM  it from your phone anywhere. Requires a login password to be set first.
+REM  Starts the app locally AND opens a public ngrok tunnel on your stable static
+REM  domain so the URL never changes. Requires a login password to be set first.
 REM ─────────────────────────────────────────────────────────────────────────────
 
 cd /d "%~dp0"
@@ -54,12 +54,24 @@ if "%FINTRACKER_PASSWORD%"=="choose-a-strong-password" (
     exit /b 1
 )
 
-REM Check cloudflared is installed
-where cloudflared >nul 2>nul
+REM Check ngrok is installed
+where ngrok >nul 2>nul
 if not %errorlevel%==0 (
     echo.
-    echo [ABORT] cloudflared is not installed.
-    echo         Install it, then re-run:  winget install --id Cloudflare.cloudflared
+    echo [ABORT] ngrok is not installed.
+    echo         Install it, then re-run:  winget install --id ngrok.ngrok
+    echo         Also run once:  ngrok config add-authtoken ^<your-token^>
+    echo.
+    pause
+    exit /b 1
+)
+
+REM Require a stable ngrok domain (set NGROK_DOMAIN in set_api_key.bat).
+if "%NGROK_DOMAIN%"=="" (
+    echo.
+    echo [ABORT] NGROK_DOMAIN is not set.
+    echo         Add your free static domain to set_api_key.bat, e.g.:
+    echo             set "NGROK_DOMAIN=yourname.ngrok-free.dev"
     echo.
     pause
     exit /b 1
@@ -91,11 +103,11 @@ start "FinTracker" "%VPY%" app.py
 REM Give the server a moment to come up, then open the public tunnel here.
 timeout /t 3 >nul
 echo.
-echo [tunnel] Opening a public Cloudflare Tunnel to http://localhost:5000
-echo [tunnel] Look for the  https://<something>.trycloudflare.com  URL below,
-echo [tunnel] open it on your phone, and sign in with your password.
+echo [tunnel] Opening ngrok tunnel on your stable domain:
+echo [tunnel]     https://%NGROK_DOMAIN%
+echo [tunnel] Open that URL on your phone and sign in with your password.
 echo [tunnel] Press Ctrl+C to stop the tunnel (then close the FinTracker window).
 echo.
-cloudflared tunnel --url http://localhost:5000
+ngrok http --url=%NGROK_DOMAIN% 5000
 
 pause

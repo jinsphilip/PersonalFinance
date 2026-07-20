@@ -171,7 +171,8 @@ async function load() {
     const items = sortItems(rows.filter(r => r.demat_account === acc));
     const aInv = items.reduce((s, r) => s + r.invested_value, 0);
     const aCur = items.reduce((s, r) => s + r.current_value, 0);
-    const aPct = aInv > 0 ? (aCur - aInv) / aInv * 100 : 0;
+    const aPL = aCur - aInv;
+    const aPct = aInv > 0 ? aPL / aInv * 100 : 0;
     const isOpen = !collapsed.has(acc);
     const isIncluded = !excluded.has(acc);
     return `
@@ -183,7 +184,9 @@ async function load() {
           <span class="broker-caret">${isOpen ? '▾' : '▸'}</span>
           <span class="broker-name">${esc(acc)}</span>
           <span class="broker-meta">${items.length} holding${items.length>1?'s':''}
-            · Cur ${fmt(aCur)} · ${gainPctBadge(aPct)}${isIncluded ? '' : ' · <span style="color:#9ca3af">excluded</span>'}</span>
+            · Inv ${fmt(aInv)} · Cur ${fmt(aCur)}
+            · <span class="${aPL>=0?'gain':'loss'}">${aPL>=0?'+':''}${fmt(aPL)}</span>
+            · ${gainPctBadge(aPct)}${isIncluded ? '' : ' · <span style="color:#9ca3af">excluded</span>'}</span>
         </div>
         <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
           <div class="table-wrap"><table class="rtable">
@@ -321,12 +324,24 @@ function del(id) {
 }
 
 document.getElementById('refreshBtn').onclick = async () => {
+  const btn = document.getElementById('refreshBtn');
+  const groups = document.getElementById('groups');
+  if (btn.disabled) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">↻</span> Refreshing…';
+  groups.classList.add('refreshing');
   showToast('Fetching latest prices…');
   try {
     const r = await apiSend('/api/refresh-prices', 'POST');
     showToast(`Updated ${r.updated_stocks} stock(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
-    load();
+    await load();
   } catch { showToast('Refresh failed', 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+    document.getElementById('groups').classList.remove('refreshing');
+  }
 };
 
 load().catch(() => showToast('Failed to load', 'error'));

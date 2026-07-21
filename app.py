@@ -145,7 +145,7 @@ def _load_env_from_bat(names):
             os.environ[name] = val
 
 
-_load_env_from_bat(['ANTHROPIC_API_KEY', 'DAYTONA_API_KEY', 'NGROK_DOMAIN'])
+_load_env_from_bat(['ANTHROPIC_API_KEY', 'DAYTONA_API_KEY', 'NGROK_DOMAIN', 'AI_MODEL'])
 
 app.secret_key = os.environ.get('FINTRACKER_SECRET') or _load_or_create_secret()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)

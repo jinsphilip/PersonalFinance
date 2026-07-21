@@ -26,7 +26,8 @@ from models import (
     AnalysisReport,
 )
 
-CODE_MODEL = os.environ.get('AI_ANALYST_MODEL', 'claude-3-5-sonnet-20241022')
+CODE_MODEL = (os.environ.get('AI_ANALYST_MODEL') or os.environ.get('AI_MODEL')
+              or 'claude-sonnet-4-6')
 DATA_PATH = '/tmp/portfolio.json'
 CHART_PATH = '/tmp/chart.png'
 

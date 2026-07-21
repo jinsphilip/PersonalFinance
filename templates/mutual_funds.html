@@ -411,8 +411,12 @@ async function refreshNavs(silent) {
 }
 document.getElementById('refreshBtn').onclick = () => refreshNavs(false);
 
-// Auto-refresh NAVs every 5 minutes (silent). Pauses while the tab is hidden.
-setInterval(() => { if (!document.hidden) refreshNavs(true); }, 5 * 60 * 1000);
+// Indian NAVs — auto-refresh on weekdays (IST) only; never on weekends.
+function isWeekdayIST() {
+  const wd = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(new Date());
+  return wd !== 'Sat' && wd !== 'Sun';
+}
+setInterval(() => { if (!document.hidden && isWeekdayIST()) refreshNavs(true); }, 5 * 60 * 1000);
 
 showLastUpdated();
 load().catch(() => showToast('Failed to load', 'error'));

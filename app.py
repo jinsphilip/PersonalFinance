@@ -1273,8 +1273,20 @@ def api_refresh_prices():
             else:
                 failed.append(f'{f.fund_name} (scheme {f.scheme_code})')
 
+    # Optional market filter so the client can refresh only the market that's
+    # currently open (IN = NSE/BSE, US = NYSE/NASDAQ). Empty = all stocks.
+    stocks_to_refresh = []
+    if do_stocks:
+        stocks_to_refresh = Stock.query.all()
+        market = (request.args.get('market') or '').upper()
+        if market == 'IN':
+            stocks_to_refresh = [s for s in stocks_to_refresh if (s.exchange or 'NSE').upper() in ('NSE', 'BSE')]
+        elif market == 'US':
+            stocks_to_refresh = [s for s in stocks_to_refresh
+                                 if (s.exchange or '').upper() in ('NYSE', 'NASDAQ', 'NMS', 'NYQ', 'US', 'AMEX', 'ARCA')]
+
     fx_cache = {'INR': 1.0}   # currency → INR rate, fetched at most once per refresh
-    for s in (Stock.query.all() if do_stocks else []):
+    for s in stocks_to_refresh:
         price, currency = prices.fetch_stock_price(s.ticker, s.exchange)
         if price is not None:
             s.current_price = price

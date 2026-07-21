@@ -447,7 +447,7 @@ function showLastUpdated() {
   document.getElementById('lastUpdated').textContent = t ? `Prices last updated: ${fmtDateTime(t)}` : '';
 }
 
-async function refreshPrices(silent) {
+async function refreshPrices(silent, market) {
   const btn = document.getElementById('refreshBtn');
   const groups = document.getElementById('groups');
   if (btn.disabled) return;
@@ -457,7 +457,8 @@ async function refreshPrices(silent) {
   groups.classList.add('refreshing');
   if (!silent) showToast('Fetching latest prices…');
   try {
-    const r = await apiSend('/api/refresh-prices?scope=stocks', 'POST');   // stocks only
+    const url = '/api/refresh-prices?scope=stocks' + (market ? '&market=' + market : '');
+    const r = await apiSend(url, 'POST');   // stocks only (optionally one market)
     localStorage.setItem(LU_KEY, r.refreshed_at || new Date().toISOString());
     if (!silent) showToast(`Updated ${r.updated_stocks} stock(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
     showFailed(r.failed || []);
@@ -470,10 +471,26 @@ async function refreshPrices(silent) {
     document.getElementById('groups').classList.remove('refreshing');
   }
 }
-document.getElementById('refreshBtn').onclick = () => refreshPrices(false);
+document.getElementById('refreshBtn').onclick = () => refreshPrices(false);   // manual = all markets
 
-// Auto-refresh stock prices every 5 minutes (silent). Pauses while a tab is hidden.
-setInterval(() => { if (!document.hidden) refreshPrices(true); }, 5 * 60 * 1000);
+// True if the given market is open now: weekday (Mon–Fri) in its own timezone
+// and within [openMin, closeMin] minutes-of-day. No refresh on weekends.
+function marketOpenNow(tz, openMin, closeMin) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+  const get = t => (parts.find(p => p.type === t) || {}).value;
+  const wd = get('weekday');
+  if (wd === 'Sat' || wd === 'Sun') return false;
+  let hh = parseInt(get('hour'), 10); if (hh === 24) hh = 0;
+  const mins = hh * 60 + parseInt(get('minute'), 10);
+  return mins >= openMin && mins <= closeMin;
+}
+
+// Every 5 min: refresh only the market(s) currently open, in their own timezone.
+setInterval(async () => {
+  if (document.hidden) return;
+  if (marketOpenNow('Asia/Kolkata', 555, 930)) await refreshPrices(true, 'IN');       // 09:15–15:30 IST
+  if (marketOpenNow('America/New_York', 570, 960)) await refreshPrices(true, 'US');    // 09:30–16:00 ET
+}, 5 * 60 * 1000);
 
 showLastUpdated();
 load().catch(() => showToast('Failed to load', 'error'));

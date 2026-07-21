@@ -125,6 +125,28 @@ def _resolve_password():
             or _password_from_bat())
 
 
+def _load_env_from_bat(names):
+    """For each var not already in the environment, read `set "NAME=value"` out of
+    set_api_key.bat and put it in os.environ. So API keys work regardless of how
+    the app is launched (bare `python app.py`, run.bat, etc.), same as the login
+    password. Ignores blank/placeholder values."""
+    import re
+    text = _read_text_any_encoding(os.path.join(_WRITABLE_DIR, 'set_api_key.bat'))
+    if not text:
+        return
+    for name in names:
+        if os.environ.get(name):
+            continue
+        m = re.search(re.escape(name) + r'\s*=\s*"?([^"\r\n]+)"?', text, re.IGNORECASE)
+        if not m:
+            continue
+        val = m.group(1).strip().strip('"').strip()
+        if val and 'your-' not in val.lower() and 'your_key' not in val.lower() and val != 'sk-ant-your-key-here':
+            os.environ[name] = val
+
+
+_load_env_from_bat(['ANTHROPIC_API_KEY', 'DAYTONA_API_KEY', 'NGROK_DOMAIN'])
+
 app.secret_key = os.environ.get('FINTRACKER_SECRET') or _load_or_create_secret()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 APP_PASSWORD = _resolve_password()

@@ -948,6 +948,22 @@ def api_stocks_sell():
     }), 201
 
 
+@app.route('/api/stocks/<int:id>/history')
+def api_stock_history(id):
+    """OHLC price history for the in-app chart, plus the holding's avg/current
+    price so the frontend can draw the buy-price line."""
+    s = Stock.query.get_or_404(id)
+    rng = request.args.get('range', '1y')
+    candles, currency = prices.fetch_stock_history(s.ticker, s.exchange, rng=rng)
+    return jsonify({
+        'ticker': s.ticker, 'exchange': s.exchange,
+        'symbol': f'{s.exchange}:{s.ticker}',
+        'currency': currency or s.currency or 'INR',
+        'avg_price': s.avg_price, 'current_price': s.current_price,
+        'candles': candles,
+    })
+
+
 @app.route('/api/stocks/<int:id>', methods=['PUT', 'DELETE'])
 def api_stock(id):
     s = Stock.query.get_or_404(id)

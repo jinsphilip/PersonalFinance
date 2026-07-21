@@ -120,6 +120,29 @@ Python · Flask · SQLAlchemy · SQLite · Chart.js · vanilla JS.
 
 See [`SPEC.md`](SPEC.md) for the full data model, API reference, and net-worth formula.
 
+## Dev environment (Daytona / Codespaces / VS Code Dev Containers)
+
+The repo ships a `.devcontainer/` so you can open a ready-to-code environment in
+one step — Python 3.11, dependencies installed, sample data seeded, port 5000
+forwarded.
+
+**Daytona:**
+```
+daytona create https://github.com/jinsphilip/PersonalFinance
+```
+Open the environment in your editor, then run `python app.py` and open the
+forwarded port 5000.
+
+**GitHub Codespaces:** on the repo → *Code ▸ Codespaces ▸ Create codespace*.
+
+**VS Code (local):** install the *Dev Containers* extension → *Reopen in
+Container*.
+
+The container runs `pip install -r requirements.txt && python init_db.py`, so it
+starts with **sample data** (your real `instance/finance.db` is gitignored and
+never leaves your machine). Set `FINTRACKER_PASSWORD` / API keys in the
+environment if you want login or the AI features there.
+
 ## Your data & backups
 
 - Your data lives in **`instance/finance.db`** (gitignored, never committed). The

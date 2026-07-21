@@ -1,0 +1,24 @@
+{
+  "name": "FinTracker",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "forwardPorts": [5000],
+  "portsAttributes": {
+    "5000": { "label": "FinTracker", "onAutoForward": "openBrowser" }
+  },
+  "postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt && python init_db.py",
+  "postAttachCommand": "echo 'Run: python app.py  → open the forwarded port 5000'",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-python.vscode-pylance"],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      }
+    }
+  },
+  "remoteEnv": {
+    "PYTHONUNBUFFERED": "1"
+  }
+}

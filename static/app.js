@@ -16,6 +16,14 @@ function fmtDate(s) {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+// Date + time, e.g. "20 Jul 2026, 3:45 PM".
+function fmtDateTime(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 // Renders a +x.xx% / -x.xx% coloured span from a numeric percentage.
 function gainPctBadge(pct) {
   const p = Number(pct);

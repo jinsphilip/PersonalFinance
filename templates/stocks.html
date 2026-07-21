@@ -20,6 +20,7 @@
       <button class="btn btn-primary" onclick="openAdd()">+ Add Stock</button>
     </div>
   </div>
+  <div id="lastUpdated" style="font-size:12px;color:#9ca3af;margin:-6px 0 12px;"></div>
   <div id="refreshFailed"></div>
   <div id="groups"></div>
 </div>
@@ -440,7 +441,13 @@ function showFailed(failed) {
     </div>`;
 }
 
-document.getElementById('refreshBtn').onclick = async () => {
+const LU_KEY = 'stocksLastUpdated';
+function showLastUpdated() {
+  const t = localStorage.getItem(LU_KEY);
+  document.getElementById('lastUpdated').textContent = t ? `Prices last updated: ${fmtDateTime(t)}` : '';
+}
+
+async function refreshPrices(silent) {
   const btn = document.getElementById('refreshBtn');
   const groups = document.getElementById('groups');
   if (btn.disabled) return;
@@ -448,20 +455,27 @@ document.getElementById('refreshBtn').onclick = async () => {
   btn.disabled = true;
   btn.innerHTML = '<span class="spin">↻</span> Refreshing…';
   groups.classList.add('refreshing');
-  showToast('Fetching latest prices…');
+  if (!silent) showToast('Fetching latest prices…');
   try {
-    const r = await apiSend('/api/refresh-prices', 'POST');
-    showToast(`Updated ${r.updated_stocks} stock(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
+    const r = await apiSend('/api/refresh-prices?scope=stocks', 'POST');   // stocks only
+    localStorage.setItem(LU_KEY, r.refreshed_at || new Date().toISOString());
+    if (!silent) showToast(`Updated ${r.updated_stocks} stock(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
     showFailed(r.failed || []);
     await load();
-  } catch { showToast('Refresh failed', 'error'); }
+    showLastUpdated();
+  } catch { if (!silent) showToast('Refresh failed', 'error'); }
   finally {
     btn.disabled = false;
     btn.innerHTML = orig;
     document.getElementById('groups').classList.remove('refreshing');
   }
-};
+}
+document.getElementById('refreshBtn').onclick = () => refreshPrices(false);
 
+// Auto-refresh stock prices every 5 minutes (silent). Pauses while a tab is hidden.
+setInterval(() => { if (!document.hidden) refreshPrices(true); }, 5 * 60 * 1000);
+
+showLastUpdated();
 load().catch(() => showToast('Failed to load', 'error'));
 </script>
 {% endblock %}

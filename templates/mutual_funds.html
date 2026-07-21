@@ -20,6 +20,7 @@
       <button class="btn btn-primary" onclick="openAdd()">+ Add Fund</button>
     </div>
   </div>
+  <div id="lastUpdated" style="font-size:12px;color:#9ca3af;margin:-6px 0 12px;"></div>
   <div id="groups"></div>
 </div>
 
@@ -380,15 +381,40 @@ function del(id) {
   });
 }
 
-document.getElementById('refreshBtn').onclick = async () => {
-  showToast('Fetching latest NAVs…');
-  try {
-    const r = await apiSend('/api/refresh-prices', 'POST');
-    showToast(`Updated ${r.updated_mf} fund(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
-    load();
-  } catch { showToast('Refresh failed', 'error'); }
-};
+const LU_KEY = 'fundsLastUpdated';
+function showLastUpdated() {
+  const t = localStorage.getItem(LU_KEY);
+  document.getElementById('lastUpdated').textContent = t ? `NAVs last updated: ${fmtDateTime(t)}` : '';
+}
 
+async function refreshNavs(silent) {
+  const btn = document.getElementById('refreshBtn');
+  const groups = document.getElementById('groups');
+  if (btn.disabled) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">↻</span> Refreshing…';
+  groups.classList.add('refreshing');
+  if (!silent) showToast('Fetching latest NAVs…');
+  try {
+    const r = await apiSend('/api/refresh-prices?scope=funds', 'POST');   // funds only
+    localStorage.setItem(LU_KEY, r.refreshed_at || new Date().toISOString());
+    if (!silent) showToast(`Updated ${r.updated_mf} fund(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
+    await load();
+    showLastUpdated();
+  } catch { if (!silent) showToast('Refresh failed', 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+    document.getElementById('groups').classList.remove('refreshing');
+  }
+}
+document.getElementById('refreshBtn').onclick = () => refreshNavs(false);
+
+// Auto-refresh NAVs every 5 minutes (silent). Pauses while the tab is hidden.
+setInterval(() => { if (!document.hidden) refreshNavs(true); }, 5 * 60 * 1000);
+
+showLastUpdated();
 load().catch(() => showToast('Failed to load', 'error'));
 </script>
 {% endblock %}

@@ -1247,13 +1247,17 @@ def api_credit_recover(id):
 
 @app.route('/api/refresh-prices', methods=['POST'])
 def api_refresh_prices():
-    """Refresh mutual fund NAVs (AMFI) and stock prices (Yahoo Finance)."""
+    """Refresh prices. `scope` (query or JSON) = 'stocks', 'funds', or 'all'
+    (default) so the Stocks and Mutual Funds pages can refresh independently."""
+    scope = (request.args.get('scope') or (request.get_json(silent=True) or {}).get('scope') or 'all').lower()
+    do_funds = scope in ('all', 'funds')
+    do_stocks = scope in ('all', 'stocks')
     today = date.today().isoformat()
     updated_mf = 0
     updated_stocks = 0
     failed = []
 
-    funds = [f for f in MutualFund.query.all() if f.scheme_code]
+    funds = [f for f in MutualFund.query.all() if f.scheme_code] if do_funds else []
     if funds:
         try:
             nav_map = prices.fetch_amfi_navs()
@@ -1270,7 +1274,7 @@ def api_refresh_prices():
                 failed.append(f'{f.fund_name} (scheme {f.scheme_code})')
 
     fx_cache = {'INR': 1.0}   # currency → INR rate, fetched at most once per refresh
-    for s in Stock.query.all():
+    for s in (Stock.query.all() if do_stocks else []):
         price, currency = prices.fetch_stock_price(s.ticker, s.exchange)
         if price is not None:
             s.current_price = price
@@ -1289,7 +1293,9 @@ def api_refresh_prices():
             failed.append(f'{s.ticker} ({s.exchange})')
 
     db.session.commit()
-    return jsonify({'updated_mf': updated_mf, 'updated_stocks': updated_stocks, 'failed': failed})
+    from datetime import datetime as _dt
+    return jsonify({'updated_mf': updated_mf, 'updated_stocks': updated_stocks,
+                    'failed': failed, 'refreshed_at': _dt.now().isoformat(timespec='seconds')})
 
 
 # ─── Statement Ingestion ───────────────────────────────────────────────────────

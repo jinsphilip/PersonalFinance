@@ -1,6 +1,9 @@
 {
   "name": "FinTracker",
-  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
   "features": {
     "ghcr.io/devcontainers/features/git:1": {}
   },
@@ -8,7 +11,7 @@
   "portsAttributes": {
     "5000": { "label": "FinTracker", "onAutoForward": "openBrowser" }
   },
-  "postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt && python init_db.py",
+  "postCreateCommand": "pip install -r requirements.txt && python init_db.py",
   "postAttachCommand": "echo 'Run: python app.py  → open the forwarded port 5000'",
   "customizations": {
     "vscode": {

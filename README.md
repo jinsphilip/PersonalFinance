@@ -138,10 +138,29 @@ forwarded port 5000.
 **VS Code (local):** install the *Dev Containers* extension → *Reopen in
 Container*.
 
-The container runs `pip install -r requirements.txt && python init_db.py`, so it
-starts with **sample data** (your real `instance/finance.db` is gitignored and
-never leaves your machine). Set `FINTRACKER_PASSWORD` / API keys in the
-environment if you want login or the AI features there.
+Dependencies are baked into the image (`.devcontainer/Dockerfile`), and on create
+it runs `python init_db.py`, so the environment starts with **sample data** (your
+real `instance/finance.db` is gitignored and never leaves your machine). Set
+`FINTRACKER_PASSWORD` / API keys in the environment if you want login or the AI
+features there.
+
+### Faster starts with Daytona prebuilds
+
+Because the Python dependencies are installed at **image build time** (in the
+Dockerfile), Daytona (and Codespaces) can **prebuild** the image so new
+environments start almost instantly instead of installing deps each time.
+
+Enable a Daytona prebuild for the repo (build ahead of time on each push):
+```
+daytona prebuild add https://github.com/jinsphilip/PersonalFinance
+```
+Daytona then builds the devcontainer image when you push, and `daytona create`
+reuses the cached image. (Prebuild CLI/flags vary by Daytona version — check
+daytona.io/docs; the key enabler is that heavy setup lives in the Dockerfile, not
+in `postCreateCommand`.)
+
+GitHub Codespaces users can get the same via **repo Settings ▸ Codespaces ▸ Set
+up prebuild**.
 
 ## Your data & backups
 

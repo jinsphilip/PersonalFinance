@@ -260,7 +260,8 @@ def ensure_legacy_columns():
     patches = {
         'credits': [('account_id', 'INTEGER')],
         'chit_funds': [('account_id', 'INTEGER')],
-        'stocks': [('currency', "VARCHAR(8) DEFAULT 'INR'"), ('fx_rate', 'FLOAT DEFAULT 1.0')],
+        'stocks': [('currency', "VARCHAR(8) DEFAULT 'INR'"), ('fx_rate', 'FLOAT DEFAULT 1.0'),
+                   ('purchase_date', 'VARCHAR(20)')],
         'mutual_funds': [
             ('is_sip', 'BOOLEAN DEFAULT 0'), ('sip_amount', 'FLOAT DEFAULT 0'),
             ('sip_day', 'INTEGER'), ('sip_frequency', "VARCHAR(15) DEFAULT 'monthly'"),
@@ -512,6 +513,27 @@ def api_dashboard():
     total_liabilities = loan_total + liability_accounts
     net_worth = total_assets - total_liabilities
 
+    # Portfolio XIRR (money-weighted) over holdings that carry a start date:
+    # each cost is an outflow at its start date; today's value is the inflow.
+    import returns
+    xirr_flows, dated_current = [], 0.0
+    for f in MutualFund.query.all():
+        inv = f.units * f.avg_nav
+        if f.investment_date and inv > 0:
+            xirr_flows.append((f.investment_date, -inv))
+            dated_current += f.units * f.current_nav
+    for s in Stock.query.all():
+        fx = s.fx_rate or 1.0
+        inv = s.quantity * s.avg_price * fx
+        if s.purchase_date and inv > 0:
+            xirr_flows.append((s.purchase_date, -inv))
+            dated_current += s.quantity * s.current_price * fx
+    portfolio_xirr = None
+    if xirr_flows and dated_current > 0:
+        xirr_flows.append((date.today().isoformat(), dated_current))
+        r = returns.xirr(xirr_flows)
+        portfolio_xirr = round(r * 100, 2) if r is not None else None
+
     # Recent income = latest INFLOW transactions.
     recent_income = [t.to_dict() for t in (
         Transaction.query.join(TransactionCategoryMaster)
@@ -560,6 +582,7 @@ def api_dashboard():
     db.session.commit()
 
     return jsonify({
+        'portfolio_xirr': portfolio_xirr,
         'net_worth': round(net_worth, 2),
         'total_assets': round(total_assets, 2),
         'total_liabilities': round(total_liabilities, 2),
@@ -898,6 +921,7 @@ def api_stocks():
         sector=data.get('sector', ''), exchange=data.get('exchange', 'NSE'),
         last_updated=data.get('last_updated', ''),
         currency=currency, fx_rate=fx_rate,
+        purchase_date=data.get('purchase_date', ''),
     )
     db.session.add(s)
     db.session.commit()
@@ -1031,6 +1055,8 @@ def api_stock(id):
     s.current_price = float(data.get('current_price', s.current_price))
     s.sector = data.get('sector', s.sector)
     s.exchange = data.get('exchange', s.exchange)
+    if 'purchase_date' in data:
+        s.purchase_date = data.get('purchase_date') or s.purchase_date
     if 'currency' in data:
         s.currency = (data.get('currency') or 'INR').upper()
         if s.currency == 'INR':

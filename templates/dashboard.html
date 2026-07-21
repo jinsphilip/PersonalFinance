@@ -16,6 +16,10 @@
         <span class="nw-meta-label">Total Liabilities</span>
         <span class="nw-meta-value red" id="nwLiabilities">—</span>
       </div>
+      <div class="nw-meta-item" id="xirrItem" style="display:none;">
+        <span class="nw-meta-label" title="Money-weighted annual return across holdings with a purchase date">Portfolio XIRR</span>
+        <span class="nw-meta-value" id="nwXirr">—</span>
+      </div>
     </div>
   </div>
 </div>
@@ -113,6 +117,12 @@ async function loadDashboard() {
   document.getElementById('nwValue').textContent = fmt(d.net_worth);
   document.getElementById('nwAssets').textContent = fmt(d.total_assets);
   document.getElementById('nwLiabilities').textContent = fmt(d.total_liabilities);
+  if (d.portfolio_xirr != null) {
+    document.getElementById('xirrItem').style.display = '';
+    const x = document.getElementById('nwXirr');
+    x.textContent = (d.portfolio_xirr >= 0 ? '+' : '') + fmtNum(d.portfolio_xirr) + '%';
+    x.style.color = d.portfolio_xirr >= 0 ? '#4ade80' : '#fca5a5';
+  }
   document.getElementById('monthlyExp').textContent = fmt(d.monthly_expenses);
   document.getElementById('expTotal').textContent = fmt(d.monthly_expenses);
 

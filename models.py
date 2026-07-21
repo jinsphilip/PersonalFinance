@@ -197,6 +197,11 @@ class MutualFund(db.Model):
             return amt * 52 / 12
         return amt
 
+    def _cagr(self, invested, current):
+        import returns
+        c = returns.cagr(invested, current, self.investment_date)
+        return round(c * 100, 2) if c is not None else None
+
     def to_dict(self):
         invested = self.units * self.avg_nav
         current = self.units * self.current_nav
@@ -217,6 +222,7 @@ class MutualFund(db.Model):
             'current_value': round(current, 2),
             'gain_loss': round(gain, 2),
             'gain_loss_pct': round(gain_pct, 2),
+            'cagr_pct': self._cagr(invested, current),
             'is_sip': bool(self.is_sip),
             'sip_amount': self.sip_amount or 0,
             'sip_day': self.sip_day,
@@ -243,6 +249,7 @@ class Stock(db.Model):
     last_updated = db.Column(db.String(20))              # date price was last refreshed
     currency = db.Column(db.String(8), default='INR')    # native quote currency
     fx_rate = db.Column(db.Float, default=1.0)           # INR per 1 unit of `currency`
+    purchase_date = db.Column(db.String(20))             # for CAGR (optional)
 
     def to_dict(self):
         # avg_price / current_price are in the native currency; portfolio totals
@@ -273,7 +280,14 @@ class Stock(db.Model):
             'current_value': round(current, 2),     # INR
             'gain_loss': round(gain, 2),            # INR
             'gain_loss_pct': round(gain_pct, 2),
+            'purchase_date': self.purchase_date,
+            'cagr_pct': self._cagr(invested_native, current_native),
         }
+
+    def _cagr(self, invested_native, current_native):
+        import returns
+        c = returns.cagr(invested_native, current_native, self.purchase_date)
+        return round(c * 100, 2) if c is not None else None
 
 
 class BankAccount(db.Model):

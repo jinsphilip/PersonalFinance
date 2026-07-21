@@ -109,22 +109,36 @@ against ACTUAL history. Rules:
 - Output ONLY the Python code — no markdown, no fences."""
 
 
+def _clientmsg(system, messages, max_tokens=8000):
+    import anthropic
+    msg = anthropic.Anthropic().messages.create(
+        model=CODE_MODEL, max_tokens=max_tokens, system=system, messages=messages)
+    text = ''.join(b.text for b in msg.content if getattr(b, 'type', None) == 'text').strip()
+    m = re.search(r'```(?:python)?\s*(.*?)```', text, re.S)   # strip accidental fences
+    return (m.group(1) if m else text).strip()
+
+
 def _generate_code(question, portfolio, system_template=None):
     """Ask Claude for a Python script for `question` using the given system prompt."""
     if not os.environ.get('ANTHROPIC_API_KEY'):
         raise SandboxError('ANTHROPIC_API_KEY is not set (needed to generate the analysis code).')
-    import anthropic
-    client = anthropic.Anthropic()
     system = (system_template or _SYSTEM).replace('{schema}', _schema_hint(portfolio))
-    msg = client.messages.create(
-        model=CODE_MODEL, max_tokens=2500,
-        system=system,
-        messages=[{'role': 'user', 'content': question.strip()}],
-    )
-    text = ''.join(b.text for b in msg.content if getattr(b, 'type', None) == 'text').strip()
-    # Strip accidental ```python fences.
-    m = re.search(r'```(?:python)?\s*(.*?)```', text, re.S)
-    return (m.group(1) if m else text).strip()
+    return _clientmsg(system, [{'role': 'user', 'content': question.strip()}])
+
+
+def _repair_code(code, error_output):
+    """One-shot fix: give Claude the broken code + error and get corrected code."""
+    system = ('You fix Python scripts. Return ONLY the corrected, complete Python '
+              'code — no markdown, no explanation. Keep the same behavior and the '
+              'same output/chart paths.')
+    user = f'This script failed:\n\n{code}\n\n--- error ---\n{error_output[:3000]}\n\nReturn the fixed script.'
+    return _clientmsg(system, [{'role': 'user', 'content': user}])
+
+
+def _looks_like_error(stdout):
+    s = (stdout or '')
+    return ('Traceback (most recent call last)' in s or 'SyntaxError' in s
+            or 'NameError' in s or 'IndentationError' in s)
 
 
 # ─── Daytona sandbox execution ───────────────────────────────────────────────
@@ -150,17 +164,29 @@ def _run_in_sandbox(code, portfolio):
             sandbox.process.exec('pip install -q pandas numpy matplotlib yfinance requests')
         except Exception:
             pass
-        resp = sandbox.process.code_run(code)
-        stdout = getattr(resp, 'result', None)
-        if stdout is None:
-            stdout = str(resp)
-        # Pull back the chart if the script wrote one.
-        chart = None
-        try:
-            chart = sandbox.fs.download_file(CHART_PATH)
-        except Exception:
-            chart = None
-        return stdout, chart
+        def _run(src):
+            resp = sandbox.process.code_run(src)
+            out = getattr(resp, 'result', None)
+            if out is None:
+                out = str(resp)
+            try:
+                ch = sandbox.fs.download_file(CHART_PATH)
+            except Exception:
+                ch = None
+            return out, ch
+
+        stdout, chart = _run(code)
+        final_code = code
+        # One automatic repair pass if the script errored (e.g. truncated code).
+        if _looks_like_error(stdout) and not chart:
+            try:
+                fixed = _repair_code(code, stdout)
+                out2, ch2 = _run(fixed)
+                if ch2 or not _looks_like_error(out2):
+                    stdout, chart, final_code = out2, ch2, fixed
+            except Exception:
+                pass
+        return stdout, chart, final_code
     finally:
         # SDK delete method varies by version — try both, ignore failures.
         if sandbox is not None:
@@ -194,12 +220,12 @@ def run_query(question, mode='analyst'):
     created = datetime.now(timezone.utc).isoformat(timespec='seconds')
     try:
         code = _generate_code(question, portfolio, system)
-        stdout, chart = _run_in_sandbox(code, portfolio)
+        stdout, chart, code = _run_in_sandbox(code, portfolio)
         chart_b64 = base64.b64encode(chart).decode('ascii') if chart else None
         report = AnalysisReport(
             created_at=created, model=f'{CODE_MODEL} + {tag}',
             holdings_snapshot=json.dumps({'question': question}),
-            overlap_input=code,                       # reuse column to store the code
+            overlap_input=code,                       # reuse column to store the (final) code
             report_html=_render_html(question, stdout, chart_b64),
             summary=question[:200], status='ok',
         )

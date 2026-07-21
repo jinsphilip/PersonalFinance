@@ -80,15 +80,44 @@ request using this data. Rules:
 - Output ONLY the Python code — no explanations, no markdown fences."""
 
 
-def _generate_code(question, portfolio):
-    """Ask Claude for a Python script answering `question`."""
+_BACKTEST_SYSTEM = f"""You are a quantitative analyst writing a Python backtest
+/ what-if simulation for a personal-finance app.
+
+A JSON file at {DATA_PATH} holds the user's portfolio (INR unless a `currency`
+field says otherwise):
+
+{{schema}}
+
+You HAVE internet access. Fetch historical prices/NAVs yourself:
+- Indian stocks: Yahoo symbol = TICKER + ".NS" (NSE) or ".BO" (BSE). US stocks:
+  bare TICKER. Use yfinance: `yfinance.Ticker(sym).history(period="max")`.
+- Mutual funds: GET https://api.mfapi.in/mf/<scheme_code> → JSON `data` list of
+  {{date:"DD-MM-YYYY", nav:".."}} (newest first).
+
+Write ONE complete Python 3 script that simulates the user's what-if scenario
+against ACTUAL history. Rules:
+- Load holdings: `import json; data = json.load(open("{DATA_PATH}"))`.
+- Fetch the historical series you need (handle missing symbols gracefully — skip
+  and note them; never crash).
+- Compare the scenario vs what actually happened where relevant. Print a clear
+  plain-text result: final values, absolute and % difference, and CAGR/XIRR if
+  meaningful. State every assumption you make.
+- Save ONE comparison chart (matplotlib, `matplotlib.use("Agg")`) to
+  "{CHART_PATH}" — e.g. portfolio value over time, scenario vs actual. Never
+  plt.show().
+- Use only stdlib, pandas, numpy, matplotlib, yfinance, requests.
+- Output ONLY the Python code — no markdown, no fences."""
+
+
+def _generate_code(question, portfolio, system_template=None):
+    """Ask Claude for a Python script for `question` using the given system prompt."""
     if not os.environ.get('ANTHROPIC_API_KEY'):
         raise SandboxError('ANTHROPIC_API_KEY is not set (needed to generate the analysis code).')
     import anthropic
     client = anthropic.Anthropic()
-    system = _SYSTEM.replace('{schema}', _schema_hint(portfolio))
+    system = (system_template or _SYSTEM).replace('{schema}', _schema_hint(portfolio))
     msg = client.messages.create(
-        model=CODE_MODEL, max_tokens=2000,
+        model=CODE_MODEL, max_tokens=2500,
         system=system,
         messages=[{'role': 'user', 'content': question.strip()}],
     )
@@ -118,7 +147,7 @@ def _run_in_sandbox(code, portfolio):
         sandbox.fs.upload_file(json.dumps(portfolio).encode('utf-8'), DATA_PATH)
         # Best-effort: make sure the analysis libraries are present.
         try:
-            sandbox.process.exec('pip install -q pandas numpy matplotlib')
+            sandbox.process.exec('pip install -q pandas numpy matplotlib yfinance requests')
         except Exception:
             pass
         resp = sandbox.process.code_run(code)
@@ -147,25 +176,28 @@ def _run_in_sandbox(code, portfolio):
 
 # ─── Public entry point ──────────────────────────────────────────────────────
 
-def run_query(question):
+def run_query(question, mode='analyst'):
     """Generate code for `question`, run it in a sandbox, persist + return the
-    result as an AnalysisReport-like dict."""
+    result. mode='analyst' answers from stored data; mode='backtest' also fetches
+    historical prices in-sandbox for what-if simulations."""
     question = (question or '').strip()
     if not question:
         raise SandboxError('Please enter a question.')
     if not os.environ.get('ANTHROPIC_API_KEY'):
         raise SandboxError('ANTHROPIC_API_KEY is not set (needed to generate the analysis code).')
     if not os.environ.get('DAYTONA_API_KEY'):
-        raise SandboxError('DAYTONA_API_KEY is not set. Add it to enable the AI Analyst.')
+        raise SandboxError('DAYTONA_API_KEY is not set. Add it to enable this feature.')
     portfolio = build_portfolio()
+    system = _BACKTEST_SYSTEM if mode == 'backtest' else _SYSTEM
+    tag = 'daytona-backtest' if mode == 'backtest' else 'daytona'
 
     created = datetime.now(timezone.utc).isoformat(timespec='seconds')
     try:
-        code = _generate_code(question, portfolio)
+        code = _generate_code(question, portfolio, system)
         stdout, chart = _run_in_sandbox(code, portfolio)
         chart_b64 = base64.b64encode(chart).decode('ascii') if chart else None
         report = AnalysisReport(
-            created_at=created, model=f'{CODE_MODEL} + daytona',
+            created_at=created, model=f'{CODE_MODEL} + {tag}',
             holdings_snapshot=json.dumps({'question': question}),
             overlap_input=code,                       # reuse column to store the code
             report_html=_render_html(question, stdout, chart_b64),
@@ -175,7 +207,7 @@ def run_query(question):
         raise
     except Exception as exc:
         report = AnalysisReport(
-            created_at=created, model=f'{CODE_MODEL} + daytona',
+            created_at=created, model=f'{CODE_MODEL} + {tag}',
             holdings_snapshot=json.dumps({'question': question}),
             report_html='', summary=question[:200], status='error',
             error=f'{type(exc).__name__}: {exc}',

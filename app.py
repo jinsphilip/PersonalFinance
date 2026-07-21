@@ -473,6 +473,10 @@ def analysis_page():
 def ai_analyst_page():
     return render_template('ai_analyst.html')
 
+@app.route('/backtest')
+def backtest_page():
+    return render_template('backtest.html')
+
 @app.route('/import')
 def import_page():
     return render_template('import.html')
@@ -894,6 +898,16 @@ def api_ai_ask():
     data = request.json or {}
     try:
         report = ai_sandbox.run_query(data.get('question', ''))
+    except ai_sandbox.SandboxError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify(report.to_dict(include_html=True)), 201
+
+
+@app.route('/api/ai/backtest', methods=['POST'])
+def api_ai_backtest():
+    data = request.json or {}
+    try:
+        report = ai_sandbox.run_query(data.get('scenario', ''), mode='backtest')
     except ai_sandbox.SandboxError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify(report.to_dict(include_html=True)), 201

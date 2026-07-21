@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}What-if Backtester · FinTracker{% endblock %}
+{% block page_title %}What-if Backtester{% endblock %}
+
+{% block content %}
+<div class="section">
+  <div class="section-header"><span class="section-title">Simulate a scenario</span></div>
+  <p style="color:#64748b;font-size:13px;margin-bottom:12px;">
+    Describe a "what-if". Claude writes a Python backtest that fetches real price
+    history and runs the simulation in a secure <b>Daytona sandbox</b> against your
+    portfolio. Requires <code>ANTHROPIC_API_KEY</code> and <code>DAYTONA_API_KEY</code>.
+    Historical data is fetched live, so runs take a little longer.
+  </p>
+  <div class="form-group">
+    <textarea id="s" rows="3" placeholder="e.g. If I had invested my mutual-fund SIP amounts into a NIFTY 50 index fund instead, where would I be today? Compare final values."></textarea>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+    <button class="btn btn-primary" id="runBtn" onclick="run()">🧪 Run backtest</button>
+    <button class="btn btn-secondary" onclick="setS('If I had bought a NIFTY 50 index fund instead of my current mutual funds on their investment dates, compare the value today.')">SIP vs index</button>
+    <button class="btn btn-secondary" onclick="setS('How would my stock portfolio have performed if I had sold everything 6 months ago and held cash?')">Sold 6 months ago</button>
+    <button class="btn btn-secondary" onclick="setS('Compare my actual stock holdings against an equal-weight buy-and-hold of the same tickers since their purchase dates.')">Equal-weight vs actual</button>
+  </div>
+  <div id="status" style="display:none;color:#64748b;font-size:13px;margin-top:10px;"><span class="spin">↻</span> Writing the backtest &amp; fetching history in the sandbox… (can take a minute)</div>
+</div>
+
+<div class="section" id="resultBox" style="display:none;">
+  <div class="section-header">
+    <span class="section-title">Result</span>
+    <button class="btn btn-secondary" onclick="toggleCode()">View code</button>
+  </div>
+  <div id="resultErr" class="loss" style="display:none;font-size:13px;margin-bottom:8px;"></div>
+  <div id="result"></div>
+  <pre id="codeBox" style="display:none;white-space:pre-wrap;font-size:12px;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:14px;overflow-x:auto;margin-top:12px;"></pre>
+</div>
+
+<div class="section">
+  <div class="section-header"><span class="section-title">History</span></div>
+  <div class="table-wrap"><table class="rtable">
+    <thead><tr><th>Run at</th><th>Scenario</th><th>Status</th><th></th></tr></thead>
+    <tbody id="histBody"><tr><td colspan="4" class="empty">No backtests yet.</td></tr></tbody>
+  </table></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>.spin{display:inline-block;animation:spin .8s linear infinite}</style>
+<script>
+function setS(t){ document.getElementById('s').value = t; }
+function toggleCode(){ const c=document.getElementById('codeBox'); c.style.display = c.style.display==='none'?'block':'none'; }
+
+function showReport(r){
+  document.getElementById('resultBox').style.display='block';
+  const err=document.getElementById('resultErr');
+  if(r.status==='ok'){ err.style.display='none'; document.getElementById('result').innerHTML=r.report_html||''; }
+  else { err.style.display='block'; err.textContent=r.error||'Failed.'; document.getElementById('result').innerHTML=''; }
+  document.getElementById('codeBox').textContent = r.overlap_input || '';
+  document.getElementById('resultBox').scrollIntoView({behavior:'smooth'});
+}
+
+async function run(){
+  const s=document.getElementById('s').value.trim();
+  if(!s){ showToast('Describe a scenario first','error'); return; }
+  const btn=document.getElementById('runBtn'), st=document.getElementById('status');
+  btn.disabled=true; st.style.display='block';
+  try{
+    const r=await apiSend('/api/ai/backtest','POST',{scenario:s});
+    showReport(r); await loadHistory();
+    showToast(r.status==='ok'?'Done':'Finished with an error', r.status==='ok'?'success':'error');
+  }catch(e){
+    let m='Failed'; try{ m=JSON.parse(e.message).error||m; }catch(_){}
+    showToast(m,'error');
+  }finally{ btn.disabled=false; st.style.display='none'; }
+}
+
+async function loadHistory(){
+  const rows=await apiGet('/api/analysis');
+  const bt=rows.filter(r=>(r.model||'').includes('daytona-backtest'));
+  const b=document.getElementById('histBody');
+  if(!bt.length){ b.innerHTML='<tr><td colspan="4" class="empty">No backtests yet.</td></tr>'; return; }
+  b.innerHTML=bt.map(r=>`<tr>
+    <td data-label="Run at">${fmtDateTime(r.created_at)}</td>
+    <td data-label="Scenario">${esc(r.summary||'')}</td>
+    <td data-label="Status"><span class="badge ${r.status==='ok'?'badge-green':'badge-red'}">${esc(r.status)}</span></td>
+    <td data-label=""><button class="btn btn-secondary" onclick="viewReport(${r.id})">View</button></td>
+  </tr>`).join('');
+}
+async function viewReport(id){ try{ showReport(await apiGet('/api/analysis/'+id)); }catch(e){ showToast('Failed to load','error'); } }
+
+loadHistory().catch(()=>{});
+</script>
+{% endblock %}

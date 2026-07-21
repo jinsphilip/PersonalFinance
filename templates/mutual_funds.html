@@ -258,7 +258,7 @@ async function load() {
                 <td data-label="Cur NAV" style="text-align:right">${fmtNum(r.current_nav)}</td>
                 <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
                 <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
-                <td data-label="Gain/Loss" style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
+                <td data-label="Gain/Loss" style="text-align:right">${gainPctBadge(r.gain_loss_pct)}${r.cagr_pct!=null?`<br><span class="badge badge-gray" title="Annualised return (CAGR) since investment date">${r.cagr_pct}%/yr</span>`:''}</td>
                 <td data-label="Actions"><div class="actions">
                   <button class="btn-icon" title="Invest from bank" onclick='openInvest(${r.id})'>&#8377;</button>
                   <button class="btn-icon" onclick='openEdit(${r.id})'>✎</button>

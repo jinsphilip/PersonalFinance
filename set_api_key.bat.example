@@ -16,3 +16,7 @@ set "FINTRACKER_PASSWORD=choose-a-strong-password"
 REM 3. Your ngrok static domain, used by run_remote.bat for a stable phone URL.
 REM    Create a free one at ngrok.com (Domains), then put it here (no https://).
 set "NGROK_DOMAIN=yourname.ngrok-free.dev"
+
+REM 4. Daytona API key for the AI Analyst (runs AI-generated code in a sandbox).
+REM    Get one at https://app.daytona.io/dashboard/keys
+set "DAYTONA_API_KEY=your-daytona-key"

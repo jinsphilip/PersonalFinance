@@ -14,6 +14,7 @@ import prices
 import services
 import ingestion
 import analysis
+import ai_sandbox
 
 # When packaged as a standalone executable (PyInstaller), bundled files live in a
 # temporary extraction dir exposed as sys._MEIPASS, while the database must be stored
@@ -445,6 +446,10 @@ def logout():
 def analysis_page():
     return render_template('analysis.html')
 
+@app.route('/ai-analyst')
+def ai_analyst_page():
+    return render_template('ai_analyst.html')
+
 @app.route('/import')
 def import_page():
     return render_template('import.html')
@@ -833,6 +838,18 @@ def api_analysis_run():
     try:
         report = analysis.run_portfolio_analysis(overlap_text=data.get('overlap_text', ''))
     except analysis.AnalysisError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify(report.to_dict(include_html=True)), 201
+
+
+# ─── AI Analyst (Claude writes code, Daytona runs it) ─────────────────────────
+
+@app.route('/api/ai/ask', methods=['POST'])
+def api_ai_ask():
+    data = request.json or {}
+    try:
+        report = ai_sandbox.run_query(data.get('question', ''))
+    except ai_sandbox.SandboxError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify(report.to_dict(include_html=True)), 201
 

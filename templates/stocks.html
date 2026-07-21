@@ -132,12 +132,19 @@ function tvLink(r) {
   return `<a href="${tvUrl(r)}" target="_blank" rel="noopener" class="tv-link" title="Open ${esc(r.ticker)} in TradingView" onclick="event.stopPropagation()">📈</a>`;
 }
 function chartBtn(r) {
-  return `<button class="tv-link" title="Chart with your buy price" onclick="event.stopPropagation();openChart(${r.id})" style="background:none;border:none;cursor:pointer;padding:0;font-size:13px">📊</button>`;
+  // Consolidated rows (have `demats`) pass their weighted avg + current so the
+  // buy line reflects the combined holding, not a single demat.
+  const extra = r.demats ? `, ${r.avg_price}, ${r.current_price}` : '';
+  return `<button class="tv-link" title="Chart with your buy price" onclick="event.stopPropagation();openChart(${r.id}${extra})" style="background:none;border:none;cursor:pointer;padding:0;font-size:13px">📊</button>`;
 }
 
-let chartStockId = null, chartRange = '1y';
-async function openChart(id) {
+let chartStockId = null, chartRange = '1y', chartOverride = null;
+// avg/current overrides let the consolidated view show its weighted-avg buy line
+// while still fetching price history for the (shared) symbol.
+async function openChart(id, avg, current) {
+  if (!id) { showToast('Chart unavailable for this row', 'error'); return; }
   chartStockId = id;
+  chartOverride = (avg != null && current != null) ? { avg_price: avg, current_price: current } : null;
   const r = rows.find(x => x.id === id) || {};
   document.getElementById('chartTitle').textContent = `${r.company_name || ''} · ${r.ticker || ''}`;
   document.getElementById('chartTvLink').href = tvUrl(r);
@@ -161,6 +168,7 @@ async function drawChart() {
     msg.textContent = 'No price history available for this symbol.'; return;
   }
   msg.textContent = '';
+  if (chartOverride) { d.avg_price = chartOverride.avg_price; d.current_price = chartOverride.current_price; }
   const sym = d.currency === 'USD' ? '$' : (d.currency && d.currency !== 'INR' ? '' : '₹');
   tvChart = LightweightCharts.createChart(box, {
     width: box.clientWidth, height: 360,
@@ -327,7 +335,7 @@ function consolidate(items) {
     const k = r.ticker;
     if (!map[k]) {
       map[k] = {
-        ticker: r.ticker, company_name: r.company_name, exchange: r.exchange,
+        id: r.id, ticker: r.ticker, company_name: r.company_name, exchange: r.exchange,
         currency: r.currency, quantity: 0, _qa: 0,
         invested_value: 0, current_value: 0, current_price: r.current_price, demats: [],
       };

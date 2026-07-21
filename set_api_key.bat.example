@@ -16,3 +16,12 @@ set "FINTRACKER_PASSWORD=choose-a-strong-password"
 REM 3. Your ngrok static domain, used by run_remote.bat for a stable phone URL.
 REM    Create a free one at ngrok.com (Domains), then put it here (no https://).
 set "NGROK_DOMAIN=yourname.ngrok-free.dev"
+
+REM 4. Daytona API key for the AI Analyst (runs AI-generated code in a sandbox).
+REM    Get one at https://app.daytona.io/dashboard/keys
+set "DAYTONA_API_KEY=your-daytona-key"
+
+REM 5. (Optional) Override the Claude model used by AI Analyst / Portfolio
+REM    Analysis. Default: claude-sonnet-4-6. Set this if your account needs a
+REM    different model (e.g. claude-opus-4-8, claude-haiku-4-5).
+REM set "AI_MODEL=claude-sonnet-4-6"

@@ -191,6 +191,29 @@ tbody tr:hover td { background: var(--surface-2); }
 .chit-pending { color: var(--warn); } .chit-auctioned { color: var(--brand-ink); }
 .transfer-arrow { color: var(--muted); font-size: 16px; }
 
+/* Spinner + refreshing overlay (price refresh) */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { display: inline-block; animation: spin .8s linear infinite; }
+.refreshing { position: relative; pointer-events: none; }
+.refreshing::after {
+  content: "Updating prices…"; position: absolute; inset: 0; display: flex;
+  align-items: flex-start; justify-content: center; padding-top: 24px;
+  background: rgba(255,255,255,.6); color: var(--muted); font-size: 13px; font-weight: 600;
+  z-index: 5; border-radius: var(--radius-sm);
+}
+
+/* TradingView chart link on stock rows */
+.tv-link { text-decoration: none; font-size: 13px; opacity: .8; margin-left: 2px; }
+.tv-link:hover { opacity: 1; }
+
+/* Failed-refresh list */
+.failed-box { background: var(--warn-soft); border: 1px solid #fcd34d; border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 14px; }
+.failed-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13.5px; font-weight: 650; color: #92400e; }
+.failed-list { margin: 8px 0 0; padding-left: 20px; columns: 2; }
+.failed-list li { font-size: 13px; color: #78350f; break-inside: avoid; margin-bottom: 2px; }
+.failed-note { font-size: 12px; color: #b45309; margin-top: 8px; }
+@media (max-width: 640px) { .failed-list { columns: 1; } }
+
 /* Collapsible broker/platform groups */
 .broker-group { border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 10px; overflow: hidden; }
 .broker-header { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 12px 14px; background: var(--surface-2); user-select: none; }

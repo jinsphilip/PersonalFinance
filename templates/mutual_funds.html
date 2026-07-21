@@ -20,6 +20,7 @@
       <button class="btn btn-primary" onclick="openAdd()">+ Add Fund</button>
     </div>
   </div>
+  <div id="lastUpdated" style="font-size:12px;color:#9ca3af;margin:-6px 0 12px;"></div>
   <div id="groups"></div>
 </div>
 
@@ -114,11 +115,84 @@
     </form>
   </div>
 </div>
+
+<div class="modal-overlay" id="chartModal" style="display:none;">
+  <div class="modal" style="width:760px;">
+    <div class="modal-header">
+      <h3 id="chartTitle">NAV Chart</h3>
+      <button class="modal-close" onclick="closeModal('chartModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;" id="chartRanges">
+        <button class="btn btn-secondary" data-range="180">6M</button>
+        <button class="btn btn-secondary" data-range="365">1Y</button>
+        <button class="btn btn-secondary" data-range="1825">5Y</button>
+        <button class="btn btn-secondary" data-range="0">Max</button>
+      </div>
+      <div id="chartBox" style="height:360px;width:100%;"></div>
+      <div id="chartLegend" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#64748b;"></div>
+      <div id="chartMsg" style="text-align:center;color:#9ca3af;font-size:13px;padding:8px;"></div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/lightweight-charts.js?v={{ asset_v }}"></script>
 <script>
 const API = '/api/mutual-funds';
+let tvChart = null, tvResize = null, chartFundId = null, chartRange = 365;
+
+function chartBtn(r) {
+  return `<button class="tv-link" title="NAV chart with your buy price" onclick="event.stopPropagation();openChart(${r.id})" style="background:none;border:none;cursor:pointer;padding:0;font-size:13px;margin-left:4px">📊</button>`;
+}
+async function openChart(id) {
+  chartFundId = id;
+  const r = (rows || []).find(x => x.id === id) || {};
+  document.getElementById('chartTitle').textContent = r.fund_name || 'NAV Chart';
+  openModal('chartModal');
+  await drawChart();
+}
+async function drawChart() {
+  const box = document.getElementById('chartBox');
+  const msg = document.getElementById('chartMsg');
+  const legend = document.getElementById('chartLegend');
+  msg.textContent = 'Loading NAV history…'; legend.innerHTML = '';
+  if (tvChart) { try { tvChart.remove(); } catch (e) {} tvChart = null; }
+  if (tvResize) { window.removeEventListener('resize', tvResize); tvResize = null; }
+  box.innerHTML = '';
+  document.querySelectorAll('#chartRanges [data-range]').forEach(b =>
+    b.classList.toggle('btn-primary', Number(b.dataset.range) === chartRange));
+  let d;
+  try { d = await apiGet(`/api/mutual-funds/${chartFundId}/history`); }
+  catch (e) { msg.textContent = 'Failed to load NAV history.'; return; }
+  let pts = d.points || [];
+  if (!pts.length) {
+    msg.textContent = d.scheme_code
+      ? 'Could not load NAV history (feed unreachable). Try again shortly.'
+      : 'No NAV history — add the AMFI scheme code to this fund to enable the chart.';
+    return;
+  }
+  if (chartRange > 0) pts = pts.slice(-chartRange);
+  msg.textContent = '';
+  tvChart = LightweightCharts.createChart(box, {
+    width: box.clientWidth, height: 360,
+    layout: { background: { color: '#fff' }, textColor: '#334155' },
+    grid: { vertLines: { color: '#eef1f5' }, horzLines: { color: '#eef1f5' } },
+    rightPriceScale: { borderColor: '#e6e9ee' }, timeScale: { borderColor: '#e6e9ee' },
+  });
+  const series = tvChart.addAreaSeries({ lineColor: '#16a34a', topColor: 'rgba(22,163,74,.2)', bottomColor: 'rgba(22,163,74,.02)', lineWidth: 2 });
+  series.setData(pts);
+  if (d.avg_nav > 0) series.createPriceLine({ price: d.avg_nav, color: '#2563eb', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Buy ₹' + fmtNum(d.avg_nav) });
+  if (d.current_nav > 0) series.createPriceLine({ price: d.current_nav, color: '#64748b', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'NAV ₹' + fmtNum(d.current_nav) });
+  tvChart.timeScale().fitContent();
+  const pl = d.avg_nav > 0 ? (d.current_nav - d.avg_nav) / d.avg_nav * 100 : 0;
+  legend.innerHTML = `<span>Avg buy NAV: <b>₹${fmtNum(d.avg_nav)}</b></span><span>Current NAV: <b>₹${fmtNum(d.current_nav)}</b></span><span class="${pl>=0?'gain':'loss'}">${pl>=0?'+':''}${fmtNum(pl)}%</span>`;
+  tvResize = () => { if (tvChart) tvChart.applyOptions({ width: box.clientWidth }); };
+  window.addEventListener('resize', tvResize);
+}
+document.querySelectorAll('#chartRanges [data-range]').forEach(b =>
+  b.addEventListener('click', () => { chartRange = Number(b.dataset.range); drawChart(); }));
 let rows = [];
 let bankAccounts = [];
 // Collapsed platforms persist across reloads.
@@ -178,7 +252,7 @@ async function load() {
               }
               return `
               <tr>
-                <td data-label="Fund">${esc(r.fund_name)}${sipTag}</td>
+                <td data-label="Fund">${esc(r.fund_name)} ${chartBtn(r)}${sipTag}</td>
                 <td data-label="Units" style="text-align:right">${fmtNum(r.units, 3)}</td>
                 <td data-label="Avg NAV" style="text-align:right">${fmtNum(r.avg_nav)}</td>
                 <td data-label="Cur NAV" style="text-align:right">${fmtNum(r.current_nav)}</td>
@@ -307,15 +381,44 @@ function del(id) {
   });
 }
 
-document.getElementById('refreshBtn').onclick = async () => {
-  showToast('Fetching latest NAVs…');
-  try {
-    const r = await apiSend('/api/refresh-prices', 'POST');
-    showToast(`Updated ${r.updated_mf} fund(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
-    load();
-  } catch { showToast('Refresh failed', 'error'); }
-};
+const LU_KEY = 'fundsLastUpdated';
+function showLastUpdated() {
+  const t = localStorage.getItem(LU_KEY);
+  document.getElementById('lastUpdated').textContent = t ? `NAVs last updated: ${fmtDateTime(t)}` : '';
+}
 
+async function refreshNavs(silent) {
+  const btn = document.getElementById('refreshBtn');
+  const groups = document.getElementById('groups');
+  if (btn.disabled) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">↻</span> Refreshing…';
+  groups.classList.add('refreshing');
+  if (!silent) showToast('Fetching latest NAVs…');
+  try {
+    const r = await apiSend('/api/refresh-prices?scope=funds', 'POST');   // funds only
+    localStorage.setItem(LU_KEY, r.refreshed_at || new Date().toISOString());
+    if (!silent) showToast(`Updated ${r.updated_mf} fund(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
+    await load();
+    showLastUpdated();
+  } catch { if (!silent) showToast('Refresh failed', 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+    document.getElementById('groups').classList.remove('refreshing');
+  }
+}
+document.getElementById('refreshBtn').onclick = () => refreshNavs(false);
+
+// Indian NAVs — auto-refresh on weekdays (IST) only; never on weekends.
+function isWeekdayIST() {
+  const wd = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(new Date());
+  return wd !== 'Sat' && wd !== 'Sun';
+}
+setInterval(() => { if (!document.hidden && isWeekdayIST()) refreshNavs(true); }, 5 * 60 * 1000);
+
+showLastUpdated();
 load().catch(() => showToast('Failed to load', 'error'));
 </script>
 {% endblock %}

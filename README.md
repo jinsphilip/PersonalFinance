@@ -120,6 +120,48 @@ Python · Flask · SQLAlchemy · SQLite · Chart.js · vanilla JS.
 
 See [`SPEC.md`](SPEC.md) for the full data model, API reference, and net-worth formula.
 
+## Dev environment (Daytona / Codespaces / VS Code Dev Containers)
+
+The repo ships a `.devcontainer/` so you can open a ready-to-code environment in
+one step — Python 3.11, dependencies installed, sample data seeded, port 5000
+forwarded.
+
+**Daytona:**
+```
+daytona create https://github.com/jinsphilip/PersonalFinance
+```
+Open the environment in your editor, then run `python app.py` and open the
+forwarded port 5000.
+
+**GitHub Codespaces:** on the repo → *Code ▸ Codespaces ▸ Create codespace*.
+
+**VS Code (local):** install the *Dev Containers* extension → *Reopen in
+Container*.
+
+Dependencies are baked into the image (`.devcontainer/Dockerfile`), and on create
+it runs `python init_db.py`, so the environment starts with **sample data** (your
+real `instance/finance.db` is gitignored and never leaves your machine). Set
+`FINTRACKER_PASSWORD` / API keys in the environment if you want login or the AI
+features there.
+
+### Faster starts with Daytona prebuilds
+
+Because the Python dependencies are installed at **image build time** (in the
+Dockerfile), Daytona (and Codespaces) can **prebuild** the image so new
+environments start almost instantly instead of installing deps each time.
+
+Enable a Daytona prebuild for the repo (build ahead of time on each push):
+```
+daytona prebuild add https://github.com/jinsphilip/PersonalFinance
+```
+Daytona then builds the devcontainer image when you push, and `daytona create`
+reuses the cached image. (Prebuild CLI/flags vary by Daytona version — check
+daytona.io/docs; the key enabler is that heavy setup lives in the Dockerfile, not
+in `postCreateCommand`.)
+
+GitHub Codespaces users can get the same via **repo Settings ▸ Codespaces ▸ Set
+up prebuild**.
+
 ## Your data & backups
 
 - Your data lives in **`instance/finance.db`** (gitignored, never committed). The

@@ -14,6 +14,7 @@ import prices
 import services
 import ingestion
 import analysis
+import ai_sandbox
 
 # When packaged as a standalone executable (PyInstaller), bundled files live in a
 # temporary extraction dir exposed as sys._MEIPASS, while the database must be stored
@@ -123,6 +124,28 @@ def _resolve_password():
     return (os.environ.get('FINTRACKER_PASSWORD') or _password_from_txt()
             or _password_from_bat())
 
+
+def _load_env_from_bat(names):
+    """For each var not already in the environment, read `set "NAME=value"` out of
+    set_api_key.bat and put it in os.environ. So API keys work regardless of how
+    the app is launched (bare `python app.py`, run.bat, etc.), same as the login
+    password. Ignores blank/placeholder values."""
+    import re
+    text = _read_text_any_encoding(os.path.join(_WRITABLE_DIR, 'set_api_key.bat'))
+    if not text:
+        return
+    for name in names:
+        if os.environ.get(name):
+            continue
+        m = re.search(re.escape(name) + r'\s*=\s*"?([^"\r\n]+)"?', text, re.IGNORECASE)
+        if not m:
+            continue
+        val = m.group(1).strip().strip('"').strip()
+        if val and 'your-' not in val.lower() and 'your_key' not in val.lower() and val != 'sk-ant-your-key-here':
+            os.environ[name] = val
+
+
+_load_env_from_bat(['ANTHROPIC_API_KEY', 'DAYTONA_API_KEY', 'NGROK_DOMAIN', 'AI_MODEL'])
 
 app.secret_key = os.environ.get('FINTRACKER_SECRET') or _load_or_create_secret()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
@@ -445,6 +468,10 @@ def logout():
 def analysis_page():
     return render_template('analysis.html')
 
+@app.route('/ai-analyst')
+def ai_analyst_page():
+    return render_template('ai_analyst.html')
+
 @app.route('/import')
 def import_page():
     return render_template('import.html')
@@ -758,6 +785,18 @@ def _invest_in_fund(mf, amount, nav, account_id, when):
     return acct
 
 
+@app.route('/api/mutual-funds/<int:id>/history')
+def api_mf_history(id):
+    """NAV history for the in-app chart, plus avg/current NAV for the buy line."""
+    mf = MutualFund.query.get_or_404(id)
+    points = prices.fetch_mf_history(mf.scheme_code) if mf.scheme_code else []
+    return jsonify({
+        'fund_name': mf.fund_name, 'scheme_code': mf.scheme_code,
+        'avg_nav': mf.avg_nav, 'current_nav': mf.current_nav,
+        'points': points,
+    })
+
+
 @app.route('/api/mutual-funds/<int:id>/invest', methods=['POST'])
 def api_mutual_fund_invest(id):
     """Invest money from a bank account into this fund (SIP installment or lump sum)."""
@@ -821,6 +860,18 @@ def api_analysis_run():
     try:
         report = analysis.run_portfolio_analysis(overlap_text=data.get('overlap_text', ''))
     except analysis.AnalysisError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify(report.to_dict(include_html=True)), 201
+
+
+# ─── AI Analyst (Claude writes code, Daytona runs it) ─────────────────────────
+
+@app.route('/api/ai/ask', methods=['POST'])
+def api_ai_ask():
+    data = request.json or {}
+    try:
+        report = ai_sandbox.run_query(data.get('question', ''))
+    except ai_sandbox.SandboxError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify(report.to_dict(include_html=True)), 201
 
@@ -946,6 +997,22 @@ def api_stocks_sell():
         'account': db.session.get(Account, acct.id).to_dict() if acct else None,
         'realized': round(realized_inr, 2),
     }), 201
+
+
+@app.route('/api/stocks/<int:id>/history')
+def api_stock_history(id):
+    """OHLC price history for the in-app chart, plus the holding's avg/current
+    price so the frontend can draw the buy-price line."""
+    s = Stock.query.get_or_404(id)
+    rng = request.args.get('range', '1y')
+    candles, currency = prices.fetch_stock_history(s.ticker, s.exchange, rng=rng)
+    return jsonify({
+        'ticker': s.ticker, 'exchange': s.exchange,
+        'symbol': f'{s.exchange}:{s.ticker}',
+        'currency': currency or s.currency or 'INR',
+        'avg_price': s.avg_price, 'current_price': s.current_price,
+        'candles': candles,
+    })
 
 
 @app.route('/api/stocks/<int:id>', methods=['PUT', 'DELETE'])
@@ -1219,13 +1286,17 @@ def api_credit_recover(id):
 
 @app.route('/api/refresh-prices', methods=['POST'])
 def api_refresh_prices():
-    """Refresh mutual fund NAVs (AMFI) and stock prices (Yahoo Finance)."""
+    """Refresh prices. `scope` (query or JSON) = 'stocks', 'funds', or 'all'
+    (default) so the Stocks and Mutual Funds pages can refresh independently."""
+    scope = (request.args.get('scope') or (request.get_json(silent=True) or {}).get('scope') or 'all').lower()
+    do_funds = scope in ('all', 'funds')
+    do_stocks = scope in ('all', 'stocks')
     today = date.today().isoformat()
     updated_mf = 0
     updated_stocks = 0
     failed = []
 
-    funds = [f for f in MutualFund.query.all() if f.scheme_code]
+    funds = [f for f in MutualFund.query.all() if f.scheme_code] if do_funds else []
     if funds:
         try:
             nav_map = prices.fetch_amfi_navs()
@@ -1241,8 +1312,20 @@ def api_refresh_prices():
             else:
                 failed.append(f'{f.fund_name} (scheme {f.scheme_code})')
 
+    # Optional market filter so the client can refresh only the market that's
+    # currently open (IN = NSE/BSE, US = NYSE/NASDAQ). Empty = all stocks.
+    stocks_to_refresh = []
+    if do_stocks:
+        stocks_to_refresh = Stock.query.all()
+        market = (request.args.get('market') or '').upper()
+        if market == 'IN':
+            stocks_to_refresh = [s for s in stocks_to_refresh if (s.exchange or 'NSE').upper() in ('NSE', 'BSE')]
+        elif market == 'US':
+            stocks_to_refresh = [s for s in stocks_to_refresh
+                                 if (s.exchange or '').upper() in ('NYSE', 'NASDAQ', 'NMS', 'NYQ', 'US', 'AMEX', 'ARCA')]
+
     fx_cache = {'INR': 1.0}   # currency → INR rate, fetched at most once per refresh
-    for s in Stock.query.all():
+    for s in stocks_to_refresh:
         price, currency = prices.fetch_stock_price(s.ticker, s.exchange)
         if price is not None:
             s.current_price = price
@@ -1261,7 +1344,9 @@ def api_refresh_prices():
             failed.append(f'{s.ticker} ({s.exchange})')
 
     db.session.commit()
-    return jsonify({'updated_mf': updated_mf, 'updated_stocks': updated_stocks, 'failed': failed})
+    from datetime import datetime as _dt
+    return jsonify({'updated_mf': updated_mf, 'updated_stocks': updated_stocks,
+                    'failed': failed, 'refreshed_at': _dt.now().isoformat(timespec='seconds')})
 
 
 # ─── Statement Ingestion ───────────────────────────────────────────────────────

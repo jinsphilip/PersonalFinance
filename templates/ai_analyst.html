@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}AI Analyst · FinTracker{% endblock %}
+{% block page_title %}AI Analyst{% endblock %}
+
+{% block content %}
+<div class="section">
+  <div class="section-header"><span class="section-title">Ask your finances</span></div>
+  <p style="color:#64748b;font-size:13px;margin-bottom:12px;">
+    Ask a question or describe a report. Claude writes Python, and it runs in a
+    secure <b>Daytona sandbox</b> against your portfolio — nothing executes on the
+    server. Requires <code>ANTHROPIC_API_KEY</code> and <code>DAYTONA_API_KEY</code>.
+  </p>
+  <div class="form-group">
+    <textarea id="q" rows="3" placeholder="e.g. What is my overall stock P&L by broker? Show a bar chart of current value per demat. Which mutual fund has the worst gain %?"></textarea>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+    <button class="btn btn-primary" id="askBtn" onclick="ask()">🤖 Analyze</button>
+    <button class="btn btn-secondary" onclick="setQ('Show a bar chart of current value by demat account and print the totals.')">Value by demat</button>
+    <button class="btn btn-secondary" onclick="setQ('Rank my mutual funds by gain % and print the best and worst three.')">MF winners/losers</button>
+    <button class="btn btn-secondary" onclick="setQ('What is my total net worth broken down by asset class? Show a pie chart.')">Net worth breakdown</button>
+  </div>
+  <div id="status" style="display:none;color:#64748b;font-size:13px;margin-top:10px;"><span class="spin">↻</span> Generating code &amp; running in the sandbox…</div>
+</div>
+
+<div class="section" id="resultBox" style="display:none;">
+  <div class="section-header">
+    <span class="section-title">Result</span>
+    <button class="btn btn-secondary" onclick="toggleCode()">View code</button>
+  </div>
+  <div id="resultErr" class="loss" style="display:none;font-size:13px;margin-bottom:8px;"></div>
+  <div id="result"></div>
+  <pre id="codeBox" style="display:none;white-space:pre-wrap;font-size:12px;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:14px;overflow-x:auto;margin-top:12px;"></pre>
+</div>
+
+<div class="section">
+  <div class="section-header"><span class="section-title">History</span></div>
+  <div class="table-wrap"><table class="rtable">
+    <thead><tr><th>Asked at</th><th>Question</th><th>Status</th><th></th></tr></thead>
+    <tbody id="histBody"><tr><td colspan="4" class="empty">No questions yet.</td></tr></tbody>
+  </table></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>.spin{display:inline-block;animation:spin .8s linear infinite}</style>
+<script>
+let lastCode = '';
+function setQ(t){ document.getElementById('q').value = t; }
+function toggleCode(){ const c=document.getElementById('codeBox'); c.style.display = c.style.display==='none'?'block':'none'; }
+
+function showReport(r){
+  document.getElementById('resultBox').style.display='block';
+  const err=document.getElementById('resultErr');
+  if(r.status==='ok'){ err.style.display='none'; document.getElementById('result').innerHTML=r.report_html||''; }
+  else { err.style.display='block'; err.textContent=r.error||'Failed.'; document.getElementById('result').innerHTML=''; }
+  lastCode = r.overlap_input || '';                 // generated code stored here
+  document.getElementById('codeBox').textContent = lastCode;
+  document.getElementById('resultBox').scrollIntoView({behavior:'smooth'});
+}
+
+async function ask(){
+  const q=document.getElementById('q').value.trim();
+  if(!q){ showToast('Type a question first','error'); return; }
+  const btn=document.getElementById('askBtn'), st=document.getElementById('status');
+  btn.disabled=true; st.style.display='block';
+  try{
+    const r=await apiSend('/api/ai/ask','POST',{question:q});
+    showReport(r); await loadHistory();
+    showToast(r.status==='ok'?'Done':'Finished with an error', r.status==='ok'?'success':'error');
+  }catch(e){
+    let m='Failed'; try{ m=JSON.parse(e.message).error||m; }catch(_){}
+    showToast(m,'error');
+  }finally{ btn.disabled=false; st.style.display='none'; }
+}
+
+async function loadHistory(){
+  const rows=await apiGet('/api/analysis');   // shared report store; AI rows have 'daytona' in model
+  const ai=rows.filter(r=>(r.model||'').includes('daytona'));
+  const b=document.getElementById('histBody');
+  if(!ai.length){ b.innerHTML='<tr><td colspan="4" class="empty">No questions yet.</td></tr>'; return; }
+  b.innerHTML=ai.map(r=>`<tr>
+    <td data-label="Asked at">${fmtDateTime(r.created_at)}</td>
+    <td data-label="Question">${esc(r.summary||'')}</td>
+    <td data-label="Status"><span class="badge ${r.status==='ok'?'badge-green':'badge-red'}">${esc(r.status)}</span></td>
+    <td data-label=""><button class="btn btn-secondary" onclick="viewReport(${r.id})">View</button></td>
+  </tr>`).join('');
+}
+async function viewReport(id){ try{ showReport(await apiGet('/api/analysis/'+id)); }catch(e){ showToast('Failed to load','error'); } }
+
+loadHistory().catch(()=>{});
+</script>
+{% endblock %}

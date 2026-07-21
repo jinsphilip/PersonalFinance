@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#16a34a" />
   <title>{% block title %}FinTracker{% endblock %}</title>
+  <!-- Home-screen app (iPhone/Android) -->
+  <link rel="manifest" href="/static/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="FinTracker" />
   <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}" />
   <script src="/static/chart.umd.min.js"></script>
 </head>
@@ -21,6 +27,7 @@
     {'path': '/credits',     'label': 'Credits Given',    'icon': '🤝', 'primary': False},
     {'path': '/import',      'label': 'Statement Import', 'icon': '📄', 'primary': False},
     {'path': '/analysis',    'label': 'Portfolio Analysis','icon': '🤖','primary': False},
+    {'path': '/ai-analyst',  'label': 'AI Analyst',       'icon': '🧠','primary': False},
   ] %}
   {% set active = request.path %}
 

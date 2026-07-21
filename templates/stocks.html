@@ -20,6 +20,8 @@
       <button class="btn btn-primary" onclick="openAdd()">+ Add Stock</button>
     </div>
   </div>
+  <div id="lastUpdated" style="font-size:12px;color:#9ca3af;margin:-6px 0 12px;"></div>
+  <div id="refreshFailed"></div>
   <div id="groups"></div>
 </div>
 
@@ -72,12 +74,35 @@
     </form>
   </div>
 </div>
+
+<div class="modal-overlay" id="chartModal" style="display:none;">
+  <div class="modal" style="width:760px;">
+    <div class="modal-header">
+      <h3 id="chartTitle">Chart</h3>
+      <button class="modal-close" onclick="closeModal('chartModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;" id="chartRanges">
+        <button class="btn btn-secondary" data-range="1mo">1M</button>
+        <button class="btn btn-secondary" data-range="6mo">6M</button>
+        <button class="btn btn-secondary" data-range="1y">1Y</button>
+        <button class="btn btn-secondary" data-range="5y">5Y</button>
+        <a class="btn btn-secondary" id="chartTvLink" href="#" target="_blank" rel="noopener" style="margin-left:auto;">Open in TradingView ↗</a>
+      </div>
+      <div id="chartBox" style="height:360px;width:100%;"></div>
+      <div id="chartLegend" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#64748b;"></div>
+      <div id="chartMsg" style="text-align:center;color:#9ca3af;font-size:13px;padding:8px;"></div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/lightweight-charts.js?v={{ asset_v }}"></script>
 <script>
 const API = '/api/stocks';
 let rows = [];
+let tvChart = null, tvResize = null;
 // Collapsed + summary-excluded broker names persist across reloads.
 let collapsed = new Set(JSON.parse(localStorage.getItem('stockCollapsed') || '[]'));
 let excluded = new Set(JSON.parse(localStorage.getItem('stockExcluded') || '[]'));
@@ -98,6 +123,85 @@ function toggleView() {
 
 // Native-currency symbol prefix for price columns.
 function ccy(c) { return c === 'USD' ? '$' : (c && c !== 'INR' ? '' : '₹'); }
+
+// TradingView chart URL for a holding (EXCHANGE:TICKER).
+function tvUrl(r) {
+  const ex = ({NSE:'NSE', BSE:'BSE', NYSE:'NYSE', NASDAQ:'NASDAQ'}[(r.exchange||'').toUpperCase()]) || 'NSE';
+  return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ex + ':' + (r.ticker||'').toUpperCase())}`;
+}
+function tvLink(r) {
+  return `<a href="${tvUrl(r)}" target="_blank" rel="noopener" class="tv-link" title="Open ${esc(r.ticker)} in TradingView" onclick="event.stopPropagation()">📈</a>`;
+}
+function chartBtn(r) {
+  // Consolidated rows (have `demats`) pass their weighted avg + current so the
+  // buy line reflects the combined holding, not a single demat.
+  const extra = r.demats ? `, ${r.avg_price}, ${r.current_price}` : '';
+  return `<button class="tv-link" title="Chart with your buy price" onclick="event.stopPropagation();openChart(${r.id}${extra})" style="background:none;border:none;cursor:pointer;padding:0;font-size:13px">📊</button>`;
+}
+
+let chartStockId = null, chartRange = '1y', chartOverride = null;
+// avg/current overrides let the consolidated view show its weighted-avg buy line
+// while still fetching price history for the (shared) symbol.
+async function openChart(id, avg, current) {
+  if (!id) { showToast('Chart unavailable for this row', 'error'); return; }
+  chartStockId = id;
+  chartOverride = (avg != null && current != null) ? { avg_price: avg, current_price: current } : null;
+  const r = rows.find(x => x.id === id) || {};
+  document.getElementById('chartTitle').textContent = `${r.company_name || ''} · ${r.ticker || ''}`;
+  document.getElementById('chartTvLink').href = tvUrl(r);
+  openModal('chartModal');
+  await drawChart();
+}
+async function drawChart() {
+  const box = document.getElementById('chartBox');
+  const msg = document.getElementById('chartMsg');
+  const legend = document.getElementById('chartLegend');
+  msg.textContent = 'Loading price history…'; legend.innerHTML = '';
+  if (tvChart) { try { tvChart.remove(); } catch (e) {} tvChart = null; }
+  if (tvResize) { window.removeEventListener('resize', tvResize); tvResize = null; }
+  box.innerHTML = '';
+  document.querySelectorAll('#chartRanges [data-range]').forEach(b =>
+    b.classList.toggle('btn-primary', b.dataset.range === chartRange));
+  let d;
+  try { d = await apiGet(`/api/stocks/${chartStockId}/history?range=${chartRange}`); }
+  catch (e) { msg.textContent = 'Failed to load history.'; return; }
+  if (!d.candles || !d.candles.length) {
+    msg.textContent = 'No price history available for this symbol.'; return;
+  }
+  msg.textContent = '';
+  if (chartOverride) { d.avg_price = chartOverride.avg_price; d.current_price = chartOverride.current_price; }
+  const sym = d.currency === 'USD' ? '$' : (d.currency && d.currency !== 'INR' ? '' : '₹');
+  tvChart = LightweightCharts.createChart(box, {
+    width: box.clientWidth, height: 360,
+    layout: { background: { color: '#fff' }, textColor: '#334155' },
+    grid: { vertLines: { color: '#eef1f5' }, horzLines: { color: '#eef1f5' } },
+    rightPriceScale: { borderColor: '#e6e9ee' },
+    timeScale: { borderColor: '#e6e9ee' },
+  });
+  const series = tvChart.addCandlestickSeries({
+    upColor: '#16a34a', downColor: '#ef4444', borderVisible: false,
+    wickUpColor: '#16a34a', wickDownColor: '#ef4444',
+  });
+  series.setData(d.candles);
+  if (d.avg_price > 0) series.createPriceLine({
+    price: d.avg_price, color: '#2563eb', lineWidth: 2, lineStyle: 2,
+    axisLabelVisible: true, title: 'Buy ' + sym + fmtNum(d.avg_price),
+  });
+  if (d.current_price > 0) series.createPriceLine({
+    price: d.current_price, color: '#64748b', lineWidth: 1, lineStyle: 3,
+    axisLabelVisible: true, title: 'LTP ' + sym + fmtNum(d.current_price),
+  });
+  tvChart.timeScale().fitContent();
+  const pl = d.avg_price > 0 ? (d.current_price - d.avg_price) / d.avg_price * 100 : 0;
+  legend.innerHTML =
+    `<span>Avg buy: <b>${sym}${fmtNum(d.avg_price)}</b></span>` +
+    `<span>Current: <b>${sym}${fmtNum(d.current_price)}</b></span>` +
+    `<span class="${pl>=0?'gain':'loss'}">${pl>=0?'+':''}${fmtNum(pl)}%</span>`;
+  tvResize = () => { if (tvChart) tvChart.applyOptions({ width: box.clientWidth }); };
+  window.addEventListener('resize', tvResize);
+}
+document.querySelectorAll('#chartRanges [data-range]').forEach(b =>
+  b.addEventListener('click', () => { chartRange = b.dataset.range; drawChart(); }));
 
 // US exchanges default to USD; NSE/BSE to INR.
 function onExchangeChange(ex) {
@@ -171,7 +275,8 @@ async function load() {
     const items = sortItems(rows.filter(r => r.demat_account === acc));
     const aInv = items.reduce((s, r) => s + r.invested_value, 0);
     const aCur = items.reduce((s, r) => s + r.current_value, 0);
-    const aPct = aInv > 0 ? (aCur - aInv) / aInv * 100 : 0;
+    const aPL = aCur - aInv;
+    const aPct = aInv > 0 ? aPL / aInv * 100 : 0;
     const isOpen = !collapsed.has(acc);
     const isIncluded = !excluded.has(acc);
     return `
@@ -183,7 +288,9 @@ async function load() {
           <span class="broker-caret">${isOpen ? '▾' : '▸'}</span>
           <span class="broker-name">${esc(acc)}</span>
           <span class="broker-meta">${items.length} holding${items.length>1?'s':''}
-            · Cur ${fmt(aCur)} · ${gainPctBadge(aPct)}${isIncluded ? '' : ' · <span style="color:#9ca3af">excluded</span>'}</span>
+            · Inv ${fmt(aInv)} · Cur ${fmt(aCur)}
+            · <span class="${aPL>=0?'gain':'loss'}">${aPL>=0?'+':''}${fmt(aPL)}</span>
+            · ${gainPctBadge(aPct)}${isIncluded ? '' : ' · <span style="color:#9ca3af">excluded</span>'}</span>
         </div>
         <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
           <div class="table-wrap"><table class="rtable">
@@ -191,7 +298,7 @@ async function load() {
             <tbody>${items.map(r => `
               <tr>
                 <td data-label="Company">${esc(r.company_name)}</td>
-                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''}</td>
+                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)}</td>
                 <td data-label="Qty" style="text-align:right">${r.quantity}</td>
                 <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
                 <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
@@ -229,7 +336,7 @@ function consolidate(items) {
     const k = r.ticker;
     if (!map[k]) {
       map[k] = {
-        ticker: r.ticker, company_name: r.company_name, exchange: r.exchange,
+        id: r.id, ticker: r.ticker, company_name: r.company_name, exchange: r.exchange,
         currency: r.currency, quantity: 0, _qa: 0,
         invested_value: 0, current_value: 0, current_price: r.current_price, demats: [],
       };
@@ -262,7 +369,7 @@ function renderConsolidated(wrap, included) {
       <tbody>${items.map(r => `
         <tr>
           <td data-label="Company">${esc(r.company_name)}</td>
-          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''}</td>
+          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)}</td>
           <td data-label="Qty" style="text-align:right">${r.quantity}</td>
           <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
           <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
@@ -320,15 +427,72 @@ function del(id) {
   });
 }
 
-document.getElementById('refreshBtn').onclick = async () => {
-  showToast('Fetching latest prices…');
-  try {
-    const r = await apiSend('/api/refresh-prices', 'POST');
-    showToast(`Updated ${r.updated_stocks} stock(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
-    load();
-  } catch { showToast('Refresh failed', 'error'); }
-};
+function showFailed(failed) {
+  const el = document.getElementById('refreshFailed');
+  if (!failed || !failed.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="failed-box">
+      <div class="failed-head">
+        <span>⚠️ ${failed.length} item(s) couldn't be updated — kept their last price</span>
+        <button class="btn-icon" onclick="document.getElementById('refreshFailed').innerHTML=''">✕</button>
+      </div>
+      <ul class="failed-list">${failed.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+      <div class="failed-note">Usually a delisted/bond/ETF symbol, a wrong ticker/exchange, or the price feed being briefly unreachable.</div>
+    </div>`;
+}
 
+const LU_KEY = 'stocksLastUpdated';
+function showLastUpdated() {
+  const t = localStorage.getItem(LU_KEY);
+  document.getElementById('lastUpdated').textContent = t ? `Prices last updated: ${fmtDateTime(t)}` : '';
+}
+
+async function refreshPrices(silent, market) {
+  const btn = document.getElementById('refreshBtn');
+  const groups = document.getElementById('groups');
+  if (btn.disabled) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">↻</span> Refreshing…';
+  groups.classList.add('refreshing');
+  if (!silent) showToast('Fetching latest prices…');
+  try {
+    const url = '/api/refresh-prices?scope=stocks' + (market ? '&market=' + market : '');
+    const r = await apiSend(url, 'POST');   // stocks only (optionally one market)
+    localStorage.setItem(LU_KEY, r.refreshed_at || new Date().toISOString());
+    if (!silent) showToast(`Updated ${r.updated_stocks} stock(s)` + (r.failed.length ? `, ${r.failed.length} failed` : ''));
+    showFailed(r.failed || []);
+    await load();
+    showLastUpdated();
+  } catch { if (!silent) showToast('Refresh failed', 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+    document.getElementById('groups').classList.remove('refreshing');
+  }
+}
+document.getElementById('refreshBtn').onclick = () => refreshPrices(false);   // manual = all markets
+
+// True if the given market is open now: weekday (Mon–Fri) in its own timezone
+// and within [openMin, closeMin] minutes-of-day. No refresh on weekends.
+function marketOpenNow(tz, openMin, closeMin) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+  const get = t => (parts.find(p => p.type === t) || {}).value;
+  const wd = get('weekday');
+  if (wd === 'Sat' || wd === 'Sun') return false;
+  let hh = parseInt(get('hour'), 10); if (hh === 24) hh = 0;
+  const mins = hh * 60 + parseInt(get('minute'), 10);
+  return mins >= openMin && mins <= closeMin;
+}
+
+// Every 5 min: refresh only the market(s) currently open, in their own timezone.
+setInterval(async () => {
+  if (document.hidden) return;
+  if (marketOpenNow('Asia/Kolkata', 555, 930)) await refreshPrices(true, 'IN');       // 09:15–15:30 IST
+  if (marketOpenNow('America/New_York', 570, 960)) await refreshPrices(true, 'US');    // 09:30–16:00 ET
+}, 5 * 60 * 1000);
+
+showLastUpdated();
 load().catch(() => showToast('Failed to load', 'error'));
 </script>
 {% endblock %}

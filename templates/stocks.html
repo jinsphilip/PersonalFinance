@@ -289,7 +289,7 @@ async function load() {
             <tbody>${items.map(r => `
               <tr>
                 <td data-label="Company">${esc(r.company_name)}</td>
-                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)} ${tvLink(r)}</td>
+                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)}</td>
                 <td data-label="Qty" style="text-align:right">${r.quantity}</td>
                 <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
                 <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
@@ -360,7 +360,7 @@ function renderConsolidated(wrap, included) {
       <tbody>${items.map(r => `
         <tr>
           <td data-label="Company">${esc(r.company_name)}</td>
-          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)} ${tvLink(r)}</td>
+          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)}</td>
           <td data-label="Qty" style="text-align:right">${r.quantity}</td>
           <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
           <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>

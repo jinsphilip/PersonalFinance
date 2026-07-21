@@ -758,6 +758,18 @@ def _invest_in_fund(mf, amount, nav, account_id, when):
     return acct
 
 
+@app.route('/api/mutual-funds/<int:id>/history')
+def api_mf_history(id):
+    """NAV history for the in-app chart, plus avg/current NAV for the buy line."""
+    mf = MutualFund.query.get_or_404(id)
+    points = prices.fetch_mf_history(mf.scheme_code) if mf.scheme_code else []
+    return jsonify({
+        'fund_name': mf.fund_name, 'scheme_code': mf.scheme_code,
+        'avg_nav': mf.avg_nav, 'current_nav': mf.current_nav,
+        'points': points,
+    })
+
+
 @app.route('/api/mutual-funds/<int:id>/invest', methods=['POST'])
 def api_mutual_fund_invest(id):
     """Invest money from a bank account into this fund (SIP installment or lump sum)."""

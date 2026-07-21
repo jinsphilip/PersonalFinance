@@ -104,6 +104,33 @@ def fetch_stock_history(ticker, exchange='NSE', rng='1y', interval='1d', timeout
         return [], None
 
 
+MFAPI_URL = 'https://api.mfapi.in/mf/{scheme}'
+
+
+def fetch_mf_history(scheme_code, timeout=20, max_points=1500):
+    """Historical NAV for an AMFI scheme code via mfapi.in.
+
+    Returns a list of {time: 'YYYY-MM-DD', value: nav} oldest first, or [] on
+    failure. mfapi returns dates as DD-MM-YYYY, newest first."""
+    try:
+        resp = requests.get(MFAPI_URL.format(scheme=str(scheme_code).strip()),
+                            headers=_HEADERS, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json().get('data') or []
+        out = []
+        for row in data:
+            d, nav = row.get('date'), row.get('nav')
+            try:
+                dd, mm, yy = d.split('-')
+                out.append({'time': f'{yy}-{mm}-{dd}', 'value': float(nav)})
+            except (ValueError, AttributeError, TypeError):
+                continue
+        out.sort(key=lambda r: r['time'])          # oldest first
+        return out[-max_points:]
+    except Exception:
+        return []
+
+
 def fetch_fx_rate(base='USD', quote='INR', timeout=15):
     """Latest FX rate: how many `quote` units per 1 `base` (e.g. USD→INR ≈ 83).
     Returns None on failure so the caller can keep the stored rate."""

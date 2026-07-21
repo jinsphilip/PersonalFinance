@@ -100,6 +100,15 @@ function toggleView() {
 // Native-currency symbol prefix for price columns.
 function ccy(c) { return c === 'USD' ? '$' : (c && c !== 'INR' ? '' : '₹'); }
 
+// TradingView chart URL for a holding (EXCHANGE:TICKER).
+function tvUrl(r) {
+  const ex = ({NSE:'NSE', BSE:'BSE', NYSE:'NYSE', NASDAQ:'NASDAQ'}[(r.exchange||'').toUpperCase()]) || 'NSE';
+  return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ex + ':' + (r.ticker||'').toUpperCase())}`;
+}
+function tvLink(r) {
+  return `<a href="${tvUrl(r)}" target="_blank" rel="noopener" class="tv-link" title="Open ${esc(r.ticker)} in TradingView" onclick="event.stopPropagation()">📈</a>`;
+}
+
 // US exchanges default to USD; NSE/BSE to INR.
 function onExchangeChange(ex) {
   const sel = document.getElementById('currencySel');
@@ -195,7 +204,7 @@ async function load() {
             <tbody>${items.map(r => `
               <tr>
                 <td data-label="Company">${esc(r.company_name)}</td>
-                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''}</td>
+                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${tvLink(r)}</td>
                 <td data-label="Qty" style="text-align:right">${r.quantity}</td>
                 <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
                 <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
@@ -266,7 +275,7 @@ function renderConsolidated(wrap, included) {
       <tbody>${items.map(r => `
         <tr>
           <td data-label="Company">${esc(r.company_name)}</td>
-          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''}</td>
+          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${tvLink(r)}</td>
           <td data-label="Qty" style="text-align:right">${r.quantity}</td>
           <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
           <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>

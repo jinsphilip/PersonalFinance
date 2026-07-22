@@ -39,7 +39,11 @@ else:
     _BASE = os.path.dirname(os.path.abspath(__file__))
     _inst = os.path.join(_BASE, 'instance', 'finance.db')
     _root = os.path.join(_BASE, 'finance.db')
-    if os.path.exists(_inst):
+    # Tests / CI set FINTRACKER_DB to a throwaway file so they never touch real data.
+    _override = os.environ.get('FINTRACKER_DB')
+    if _override:
+        db_path = _override
+    elif os.path.exists(_inst):
         db_path = _inst
     elif os.path.exists(_root):
         db_path = _root

@@ -1368,9 +1368,12 @@ def api_refresh_prices():
             stocks_to_refresh = [s for s in stocks_to_refresh
                                  if (s.exchange or '').upper() in ('NYSE', 'NASDAQ', 'NMS', 'NYQ', 'US', 'AMEX', 'ARCA')]
 
+    # Fetch every quote concurrently — one slow/timing-out ticker no longer
+    # stalls the whole refresh (was a sequential loop of blocking HTTP calls).
+    quotes = prices.fetch_stock_prices_bulk(stocks_to_refresh)
     fx_cache = {'INR': 1.0}   # currency → INR rate, fetched at most once per refresh
     for s in stocks_to_refresh:
-        price, currency = prices.fetch_stock_price(s.ticker, s.exchange)
+        price, currency = quotes.get(id(s), (None, None))
         if price is not None:
             s.current_price = price
             s.last_updated = today

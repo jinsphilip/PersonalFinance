@@ -5,6 +5,8 @@ special configuration is needed in a proxied environment. All network calls are
 wrapped defensively: on any failure the caller keeps the previously stored value
 and the symbol is reported as failed instead of raising.
 """
+from concurrent.futures import ThreadPoolExecutor
+
 import requests
 
 AMFI_NAV_URL = 'https://www.amfiindia.com/spages/NAVAll.txt'
@@ -73,6 +75,29 @@ def fetch_stock_price(ticker, exchange='NSE', timeout=15):
         return (float(price) if price is not None else None, currency)
     except Exception:
         return (None, None)
+
+
+def fetch_stock_prices_bulk(items, timeout=8, max_workers=12):
+    """Fetch many stock quotes concurrently.
+
+    `items` is an iterable of objects with `.ticker` and `.exchange`. Returns a
+    dict keyed by id(item) -> (price, currency), so the caller can apply results
+    to the ORM objects on the main thread (network in threads, DB writes single-
+    threaded). One slow ticker no longer blocks the rest.
+    """
+    items = list(items)
+    if not items:
+        return {}
+    workers = min(max_workers, len(items))
+
+    def _one(it):
+        return id(it), fetch_stock_price(it.ticker, it.exchange, timeout=timeout)
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for key, val in pool.map(_one, items):
+            results[key] = val
+    return results
 
 
 def fetch_stock_history(ticker, exchange='NSE', rng='1y', interval='1d', timeout=20):

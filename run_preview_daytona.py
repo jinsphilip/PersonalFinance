@@ -26,20 +26,27 @@ EXCLUDE = {'venv', '.venv', 'instance', '.git', '__pycache__', 'backups', 'dist'
 PORT = 5000
 DEMO_PASSWORD = os.environ.get('FINTRACKER_DEMO_PASSWORD', 'fintracker')
 
-REMOTE_SCRIPT = r'''
+# Setup only (synchronous): unpack, install deps, seed the demo DB.
+SETUP_SCRIPT = r'''
 set -e
 cd /tmp/app
 pip install -q -r requirements.txt
 export FINTRACKER_DB=/tmp/preview.db
-export FINTRACKER_PASSWORD='__PASSWORD__'
 python init_db.py --force
-# Bind to 0.0.0.0 so the Daytona preview proxy can reach it.
-nohup python -c "import app; app.app.run(host='0.0.0.0', port=__PORT__, debug=False)" > /tmp/server.log 2>&1 &
-for i in $(seq 1 40); do
-  if curl -sf -o /dev/null http://127.0.0.1:__PORT__/login; then echo "server up"; exit 0; fi
-  sleep 0.5
-done
-echo "server did not start"; tail -n 30 /tmp/server.log; exit 1
+echo "setup done"
+'''
+
+# Start the server FULLY DETACHED so it survives after this exec returns.
+# `setsid` puts it in its own session/process group; </dev/null and the log
+# redirect free it from the exec's stdio. Without setsid, Daytona kills the
+# background process when the exec command completes -> 502 on the preview URL.
+START_SCRIPT = r'''
+cd /tmp/app
+export FINTRACKER_DB=/tmp/preview.db
+export FINTRACKER_PASSWORD='__PASSWORD__'
+setsid nohup python -c "import app; app.app.run(host='0.0.0.0', port=__PORT__, debug=False)" \
+    > /tmp/server.log 2>&1 < /dev/null &
+echo "server launched"
 '''
 
 
@@ -89,16 +96,39 @@ def main():
         sandbox = daytona.create()
         print('Uploading project…')
         sandbox.fs.upload_file(_tarball(), '/tmp/app.tar.gz')
-        script = (REMOTE_SCRIPT.replace('__PASSWORD__', DEMO_PASSWORD)
-                  .replace('__PORT__', str(PORT)))
-        sandbox.fs.upload_file(script.encode(), '/tmp/_preview.sh')
-        print('Installing deps, seeding demo data, starting the server…')
+        setup = SETUP_SCRIPT.replace('__PORT__', str(PORT))
+        start = START_SCRIPT.replace('__PASSWORD__', DEMO_PASSWORD).replace('__PORT__', str(PORT))
+        sandbox.fs.upload_file(setup.encode(), '/tmp/_setup.sh')
+        sandbox.fs.upload_file(start.encode(), '/tmp/_start.sh')
+
+        print('Installing deps and seeding demo data…')
         resp = sandbox.process.exec(
-            'mkdir -p /tmp/app && tar xzf /tmp/app.tar.gz -C /tmp/app && bash /tmp/_preview.sh')
-        out = getattr(resp, 'result', None) or str(resp)
-        print(out)
+            'mkdir -p /tmp/app && tar xzf /tmp/app.tar.gz -C /tmp/app && bash /tmp/_setup.sh')
+        print(getattr(resp, 'result', None) or str(resp))
         if getattr(resp, 'exit_code', 0) not in (None, 0):
             sys.exit(1)
+
+        print('Starting the server (detached)…')
+        sandbox.process.exec('bash /tmp/_start.sh')
+
+        # Poll for liveness through SEPARATE exec calls. If it answers here — in a
+        # different exec than the one that launched it — the process truly
+        # survived, so the preview URL won't 502.
+        alive = False
+        for _ in range(40):
+            r = sandbox.process.exec(
+                "curl -s -o /dev/null -w '%%{http_code}' http://127.0.0.1:%d/login" % PORT)
+            if (getattr(r, 'result', '') or '').strip() == '200':
+                alive = True
+                break
+            import time
+            time.sleep(0.5)
+        if not alive:
+            print('Server did not come up. Log tail:')
+            log = sandbox.process.exec('tail -n 30 /tmp/server.log')
+            print(getattr(log, 'result', None) or str(log))
+            sys.exit(1)
+        print('Server is up and staying up.')
 
         url, token = _preview_url(sandbox)
         print('\n' + '=' * 60)

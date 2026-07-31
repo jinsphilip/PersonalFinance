@@ -142,6 +142,13 @@ function tvUrl(r) {
 function tvLink(r) {
   return `<a href="${tvUrl(r)}" target="_blank" rel="noopener" class="tv-link" title="Open ${esc(r.ticker)} in TradingView" onclick="event.stopPropagation()">📈</a>`;
 }
+// Screener.in link (Indian stocks only — NSE/BSE).
+function screenerLink(r) {
+  const ex = (r.exchange || '').toUpperCase();
+  if (ex !== 'NSE' && ex !== 'BSE') return '';
+  const url = `https://www.screener.in/company/${encodeURIComponent((r.ticker || '').toUpperCase())}/`;
+  return `<a href="${url}" target="_blank" rel="noopener" class="tv-link" title="Open ${esc(r.ticker)} on Screener.in" onclick="event.stopPropagation()">🔎</a>`;
+}
 function chartBtn(r) {
   // Consolidated rows (have `demats`) pass their weighted avg + current so the
   // buy line reflects the combined holding, not a single demat.
@@ -428,7 +435,7 @@ async function load() {
               <tr>
                 ${selCell(r)}
                 <td data-label="Company">${esc(r.company_name)}</td>
-                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)}</td>
+                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)} ${screenerLink(r)}</td>
                 <td data-label="Qty" style="text-align:right">${r.quantity}</td>
                 <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
                 <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
@@ -501,7 +508,7 @@ function renderConsolidated(wrap, source) {
         <tr>
           ${selCell(r)}
           <td data-label="Company">${esc(r.company_name)}</td>
-          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)}</td>
+          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)} ${screenerLink(r)}</td>
           <td data-label="Qty" style="text-align:right">${r.quantity}</td>
           <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
           <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>

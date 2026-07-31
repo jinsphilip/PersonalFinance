@@ -368,7 +368,14 @@ async function exportSelected() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
     });
-    if (!resp.ok) throw new Error('export failed');
+    if (!resp.ok) {
+      // Surface the server's explanation (e.g. "needs openpyxl…") instead of a
+      // generic failure.
+      let msg = `Export failed (HTTP ${resp.status})`;
+      try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (e) {}
+      showToast(msg, 'error');
+      return;
+    }
     const blob = await resp.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -376,7 +383,7 @@ async function exportSelected() {
     document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
     showToast(`Exported ${ids.length} stock(s)`);
-  } catch { showToast('Export failed', 'error'); }
+  } catch (e) { showToast('Export failed: ' + (e.message || e), 'error'); }
 }
 
 async function load() {

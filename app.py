@@ -1328,6 +1328,117 @@ def api_credit_recover(id):
 
 # ─── Live Price Refresh ────────────────────────────────────────────────────────
 
+def _xls_sheet_name(name, used):
+    """Excel sheet names: <=31 chars, none of []:*?/\\, and unique."""
+    clean = ''.join(c for c in str(name) if c not in '[]:*?/\\') or 'Sheet'
+    clean = clean[:31]
+    base, i = clean, 1
+    while clean in used:
+        suffix = f'~{i}'
+        clean = base[:31 - len(suffix)] + suffix
+        i += 1
+    used.add(clean)
+    return clean
+
+
+def _export_rows(stocks):
+    """(name, buy, current, invested, current_total) tuples from Stock rows."""
+    out = []
+    for s in stocks:
+        d = s.to_dict()
+        out.append((d['company_name'], d['avg_price'], d['current_price'],
+                    d['invested_value'], d['current_value']))
+    return out
+
+
+def _consolidate_rows(stocks):
+    """Aggregate by ticker: weighted-avg buy price, summed invested/current."""
+    agg = {}
+    for s in stocks:
+        d = s.to_dict()
+        g = agg.setdefault(d['ticker'], {'name': d['company_name'], 'qa': 0.0, 'qty': 0.0,
+                                         'ltp': d['current_price'], 'inv': 0.0, 'cur': 0.0})
+        g['qty'] += s.quantity or 0
+        g['qa'] += (s.quantity or 0) * (d['avg_price'] or 0)
+        if d['current_price']:
+            g['ltp'] = d['current_price']
+        g['inv'] += d['invested_value']
+        g['cur'] += d['current_value']
+    rows = []
+    for g in agg.values():
+        buy = g['qa'] / g['qty'] if g['qty'] else 0
+        rows.append((g['name'], buy, g['ltp'], g['inv'], g['cur']))
+    return rows
+
+
+@app.route('/api/stocks/export', methods=['POST'])
+def api_stocks_export():
+    """Export selected stocks to a multi-sheet .xlsx: one sheet per broker plus
+    a Consolidated sheet. Body: {"ids": [...]}. Empty/omitted ids exports all."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        return jsonify({'error': 'Excel export needs openpyxl. Run: pip install openpyxl'}), 500
+
+    ids = (request.get_json(silent=True) or {}).get('ids') or []
+    q = Stock.query.filter(Stock.id.in_(ids)) if ids else Stock.query
+    stocks = q.all()
+    if not stocks:
+        return jsonify({'error': 'No stocks to export'}), 400
+
+    HEAD = ['Name', 'Buy Price', 'Current Price', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss']
+    head_font = Font(bold=True, color='FFFFFF')
+    head_fill = PatternFill('solid', fgColor='2563EB')
+    tot_font = Font(bold=True)
+    money = '#,##0.00'
+
+    def write_sheet(ws, data_rows):
+        ws.append(HEAD)
+        for c in ws[1]:
+            c.font = head_font; c.fill = head_fill; c.alignment = Alignment(horizontal='center')
+        t_inv = t_cur = 0.0
+        for (name, buy, cur_price, inv, cur) in data_rows:
+            pl = cur - inv
+            pct = (pl / inv * 100) if inv else 0
+            ws.append([name, round(buy, 2), round(cur_price, 2), round(inv, 2),
+                       round(cur, 2), round(pl, 2), round(pct, 2) / 100])
+            t_inv += inv; t_cur += cur
+        # Totals row.
+        t_pl = t_cur - t_inv
+        t_pct = (t_pl / t_inv) if t_inv else 0
+        ws.append(['TOTAL', None, None, round(t_inv, 2), round(t_cur, 2), round(t_pl, 2), round(t_pct, 4)])
+        for c in ws[ws.max_row]:
+            c.font = tot_font
+        # Number formats + widths.
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for col in (2, 3, 4, 5, 6):
+                row[col - 1].number_format = money
+            row[6].number_format = '0.00%'
+        for col, w in zip('ABCDEFG', (28, 12, 14, 16, 16, 14, 16)):
+            ws.column_dimensions[col].width = w
+
+    wb = Workbook()
+    used = set()
+    # Consolidated first.
+    ws0 = wb.active
+    ws0.title = _xls_sheet_name('Consolidated', used)
+    write_sheet(ws0, _consolidate_rows(stocks))
+    # One sheet per broker.
+    brokers = sorted({s.demat_account for s in stocks})
+    for acc in brokers:
+        ws = wb.create_sheet(_xls_sheet_name(acc, used))
+        write_sheet(ws, _export_rows([s for s in stocks if s.demat_account == acc]))
+
+    import io as _io
+    from flask import Response
+    buf = _io.BytesIO(); wb.save(buf); buf.seek(0)
+    fname = f'stocks_selected_{date.today().isoformat()}.xlsx'
+    return Response(buf.getvalue(),
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': f'attachment; filename={fname}'})
+
+
 @app.route('/api/refresh-prices', methods=['POST'])
 def api_refresh_prices():
     """Refresh prices. `scope` (query or JSON) = 'stocks', 'funds', or 'all'

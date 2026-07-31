@@ -107,9 +107,8 @@
 const API = '/api/stocks';
 let rows = [];
 let tvChart = null, tvResize = null;
-// Collapsed + summary-excluded broker names persist across reloads.
+// Collapsed broker names persist across reloads.
 let collapsed = new Set(JSON.parse(localStorage.getItem('stockCollapsed') || '[]'));
-let excluded = new Set(JSON.parse(localStorage.getItem('stockExcluded') || '[]'));
 // Sort state for the holdings grids.
 let sortKey = localStorage.getItem('stockSortKey') || 'current_value';
 let sortDir = localStorage.getItem('stockSortDir') || 'desc';
@@ -117,13 +116,13 @@ let sortDir = localStorage.getItem('stockSortDir') || 'desc';
 let view = localStorage.getItem('stockView') || 'broker';
 
 // Per-row selection for the subtotal + CSV export. `selected` holds selection
-// keys; `rowIndex` maps each currently-rendered key to its display data and is
-// rebuilt on every load().
+// keys; `rowIndex` maps each currently-rendered key to its display data and
+// `brokerKeys` maps a broker -> its row keys. Rebuilt on every load().
 let selected = new Set();
 let rowIndex = {};
+let brokerKeys = {};
 
 function saveCollapsed() { localStorage.setItem('stockCollapsed', JSON.stringify([...collapsed])); }
-function saveExcluded() { localStorage.setItem('stockExcluded', JSON.stringify([...excluded])); }
 
 function toggleView() {
   view = view === 'broker' ? 'consolidated' : 'broker';
@@ -255,7 +254,9 @@ function headerRow() {
     const arrow = sortKey === c.key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
     return `<th style="text-align:${c.align};cursor:pointer;user-select:none" onclick="sortBy('${c.key}')">${c.label}${arrow}</th>`;
   }).join('');
-  return `<tr>${selHeaderCell()}${cells}<th></th></tr>`;
+  // Broker view: the per-broker checkbox is the select-all, so this column
+  // header is just a spacer for the row checkboxes.
+  return `<tr><th></th>${cells}<th></th></tr>`;
 }
 
 // ─── Row selection (subtotal + export) ───────────────────────────────────────
@@ -279,104 +280,139 @@ function selHeaderCell() {
     onclick="selectAll(this)" style="cursor:pointer;width:15px;height:15px;"></th>`;
 }
 function onRowSel(cb) { cb.checked ? selected.add(cb.value) : selected.delete(cb.value); updateSelBar(); }
-function selectAll(cb) {
+function selectAll(cb) {   // consolidated view header select-all
   cb.closest('table').querySelectorAll('tbody input.rowsel').forEach(x => {
     x.checked = cb.checked;
     cb.checked ? selected.add(x.value) : selected.delete(x.value);
   });
   updateSelBar();
 }
-function clearSelection() {
-  selected.clear();
-  document.querySelectorAll('input.rowsel, thead input[type=checkbox]').forEach(x => x.checked = false);
+// Broker-name checkbox: select / deselect every holding in that broker.
+function toggleBrokerSelect(acc, cb) {
+  const keys = brokerKeys[acc] || [];
+  keys.forEach(k => cb.checked ? selected.add(k) : selected.delete(k));
+  document.querySelectorAll('input.rowsel').forEach(x => {
+    if (keys.includes(x.value)) x.checked = cb.checked;
+  });
   updateSelBar();
 }
-function updateSelBar() {
-  const bar = document.getElementById('selBar');
-  let n = 0, inv = 0, cur = 0;
-  selected.forEach(k => { const d = rowIndex[k]; if (d) { n++; inv += d.inv; cur += d.cur; } });
-  if (!n) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
-  const pl = cur - inv, pct = inv > 0 ? pl / inv * 100 : 0;
-  bar.style.display = '';
-  bar.innerHTML =
-    `<span class="sel-count">${n} selected</span>
-     <span>Invested <b>${fmt(inv)}</b></span>
-     <span>Current <b>${fmt(cur)}</b></span>
-     <span>P&amp;L <b class="${pl >= 0 ? 'gain' : 'loss'}">${pl >= 0 ? '+' : ''}${fmt(pl)}</b></span>
-     <span class="${pl >= 0 ? 'gain' : 'loss'}">${pl >= 0 ? '+' : ''}${fmtNum(pct)}%</span>
-     <span style="margin-left:auto;display:flex;gap:8px;">
-       <button class="btn btn-primary" onclick="exportSelected()">⬇ Export CSV</button>
-       <button class="btn btn-secondary" onclick="clearSelection()">Clear</button>
-     </span>`;
+function clearSelection() {
+  selected.clear();
+  document.querySelectorAll('input.rowsel').forEach(x => x.checked = false);
+  updateSelBar();
 }
-
-function csvCell(v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
-function exportSelected() {
-  const items = [];
-  selected.forEach(k => { const d = rowIndex[k]; if (d) items.push(d); });
-  if (!items.length) { showToast('No rows selected', 'error'); return; }
-  const head = ['Name', 'Buy Price', 'Current Price', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss'];
-  const lines = [head.join(',')];
-  items.forEach(d => {
-    const pl = d.cur - d.inv, pct = d.inv > 0 ? pl / d.inv * 100 : 0;
-    lines.push([d.name, d.avg.toFixed(2), d.ltp.toFixed(2), d.inv.toFixed(2),
-                d.cur.toFixed(2), pl.toFixed(2), pct.toFixed(2) + '%'].map(csvCell).join(','));
+// Reflect partial/full selection on each broker checkbox.
+function syncBrokerChecks() {
+  document.querySelectorAll('input.brokerchk').forEach(cb => {
+    const keys = brokerKeys[cb.dataset.acc] || [];
+    const sel = keys.filter(k => selected.has(k)).length;
+    cb.checked = keys.length > 0 && sel === keys.length;
+    cb.indeterminate = sel > 0 && sel < keys.length;
   });
-  // BOM so Excel opens ₹/non-ASCII correctly.
-  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `stocks_selected_${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
-  showToast(`Exported ${items.length} stock(s)`);
 }
-
-async function load() {
-  rows = await apiGet(API);
-  rowIndex = {};                  // rebuilt as rows render below
-
-  // Summary reflects only brokers that are *checked* (not excluded).
-  const included = rows.filter(r => !excluded.has(r.demat_account));
-  let inv = 0, cur = 0;
-  included.forEach(r => { inv += r.invested_value; cur += r.current_value; });
+// Top summary cards: selected rows if any are ticked, otherwise the whole book.
+function refreshSummary() {
+  let inv = 0, cur = 0, n = 0;
+  if (selected.size) {
+    selected.forEach(k => { const d = rowIndex[k]; if (d) { n++; inv += d.inv; cur += d.cur; } });
+  } else {
+    rows.forEach(r => { inv += r.invested_value; cur += r.current_value; });
+    n = rows.length;
+  }
   document.getElementById('sInvested').textContent = fmt(inv);
   document.getElementById('sCurrent').textContent = fmt(cur);
   const g = document.getElementById('sGain');
   g.textContent = fmt(cur - inv);
   g.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
-  document.getElementById('sCount').textContent = included.length;
+  document.getElementById('sCount').textContent = n;
+}
+function updateSelBar() {
+  const bar = document.getElementById('selBar');
+  let n = 0, inv = 0, cur = 0;
+  selected.forEach(k => { const d = rowIndex[k]; if (d) { n++; inv += d.inv; cur += d.cur; } });
+  if (!n) { bar.style.display = 'none'; bar.innerHTML = ''; }
+  else {
+    const pl = cur - inv, pct = inv > 0 ? pl / inv * 100 : 0;
+    bar.style.display = '';
+    bar.innerHTML =
+      `<span class="sel-count">${n} selected</span>
+       <span>Invested <b>${fmt(inv)}</b></span>
+       <span>Current <b>${fmt(cur)}</b></span>
+       <span>P&amp;L <b class="${pl >= 0 ? 'gain' : 'loss'}">${pl >= 0 ? '+' : ''}${fmt(pl)}</b></span>
+       <span class="${pl >= 0 ? 'gain' : 'loss'}">${pl >= 0 ? '+' : ''}${fmtNum(pct)}%</span>
+       <span style="margin-left:auto;display:flex;gap:8px;">
+         <button class="btn btn-primary" onclick="exportSelected()">⬇ Export Excel</button>
+         <button class="btn btn-secondary" onclick="clearSelection()">Clear</button>
+       </span>`;
+  }
+  refreshSummary();
+  syncBrokerChecks();
+}
+
+// Resolve the current selection to underlying stock ids (consolidated keys
+// expand to every demat holding of that ticker).
+function selectedStockIds() {
+  const ids = new Set();
+  selected.forEach(k => {
+    if (k[0] === 'S') ids.add(Number(k.slice(1)));
+    else if (k[0] === 'C') rows.forEach(r => { if (r.ticker === k.slice(1)) ids.add(r.id); });
+  });
+  return [...ids];
+}
+// Server builds a multi-sheet .xlsx: one sheet per broker + a Consolidated sheet.
+async function exportSelected() {
+  const ids = selectedStockIds();
+  if (!ids.length) { showToast('No rows selected', 'error'); return; }
+  try {
+    const resp = await fetch('/api/stocks/export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (!resp.ok) throw new Error('export failed');
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `stocks_selected_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    showToast(`Exported ${ids.length} stock(s)`);
+  } catch { showToast('Export failed', 'error'); }
+}
+
+async function load() {
+  rows = await apiGet(API);
+  rowIndex = {}; brokerKeys = {};   // rebuilt as rows render below
 
   // Toggle visibility of broker-only controls.
   document.getElementById('viewBtn').textContent = view === 'broker' ? 'Consolidated view' : 'By broker view';
   document.getElementById('toggleAllBtn').style.display = view === 'broker' ? '' : 'none';
 
   const wrap = document.getElementById('groups');
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; return; }
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; refreshSummary(); return; }
 
-  if (view === 'consolidated') { renderConsolidated(wrap, included); return; }
+  if (view === 'consolidated') { renderConsolidated(wrap, rows); return; }
 
   const accounts = [...new Set(rows.map(r => r.demat_account))].sort();
   wrap.innerHTML = accounts.map(acc => {
     const items = sortItems(rows.filter(r => r.demat_account === acc));
+    brokerKeys[acc] = items.map(selKey);
     const aInv = items.reduce((s, r) => s + r.invested_value, 0);
     const aCur = items.reduce((s, r) => s + r.current_value, 0);
     const aPL = aCur - aInv;
     const aPct = aInv > 0 ? aPL / aInv * 100 : 0;
     const isOpen = !collapsed.has(acc);
-    const isIncluded = !excluded.has(acc);
     return `
-      <div class="broker-group${isIncluded ? '' : ' broker-excluded'}">
+      <div class="broker-group">
         <div class="broker-header" onclick="toggleBroker('${esc(acc)}')">
-          <input type="checkbox" title="Include in summary" ${isIncluded ? 'checked' : ''}
-                 onclick="event.stopPropagation(); toggleInclude('${esc(acc)}')"
+          <input type="checkbox" class="brokerchk" data-acc="${esc(acc)}" title="Select all holdings in this broker"
+                 onclick="event.stopPropagation(); toggleBrokerSelect('${esc(acc)}', this)"
                  style="cursor:pointer;width:15px;height:15px;">
           <span class="broker-caret">${isOpen ? '▾' : '▸'}</span>
           <span class="broker-name">${esc(acc)}</span>
           <span class="broker-meta">${items.length} holding${items.length>1?'s':''}
             · Inv ${fmt(aInv)} · Cur ${fmt(aCur)}
             · <span class="${aPL>=0?'gain':'loss'}">${aPL>=0?'+':''}${fmt(aPL)}</span>
-            · ${gainPctBadge(aPct)}${isIncluded ? '' : ' · <span style="color:#9ca3af">excluded</span>'}</span>
+            · ${gainPctBadge(aPct)}</span>
         </div>
         <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
           <div class="table-wrap"><table class="rtable">
@@ -444,9 +480,9 @@ function consolidate(items) {
   });
 }
 
-function renderConsolidated(wrap, included) {
-  const items = sortItems(consolidate(included));
-  if (!items.length) { wrap.innerHTML = '<div class="empty">No included holdings. Tick a broker in By Broker view.</div>'; return; }
+function renderConsolidated(wrap, source) {
+  const items = sortItems(consolidate(source));
+  if (!items.length) { wrap.innerHTML = '<div class="empty">No holdings yet.</div>'; refreshSummary(); return; }
   const header = COLS.map(c => {
     const arrow = sortKey === c.key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
     return `<th style="text-align:${c.align};cursor:pointer;user-select:none" onclick="sortBy('${c.key}')">${c.label}${arrow}</th>`;

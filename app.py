@@ -1342,17 +1342,17 @@ def _xls_sheet_name(name, used):
 
 
 def _export_rows(stocks):
-    """(name, buy, current, invested, current_total) tuples from Stock rows."""
+    """(name, qty, buy, current, invested, current_total) tuples from Stock rows."""
     out = []
     for s in stocks:
         d = s.to_dict()
-        out.append((d['company_name'], d['avg_price'], d['current_price'],
+        out.append((d['company_name'], s.quantity or 0, d['avg_price'], d['current_price'],
                     d['invested_value'], d['current_value']))
     return out
 
 
 def _consolidate_rows(stocks):
-    """Aggregate by ticker: weighted-avg buy price, summed invested/current."""
+    """Aggregate by ticker: total qty, weighted-avg buy price, summed inv/current."""
     agg = {}
     for s in stocks:
         d = s.to_dict()
@@ -1367,7 +1367,7 @@ def _consolidate_rows(stocks):
     rows = []
     for g in agg.values():
         buy = g['qa'] / g['qty'] if g['qty'] else 0
-        rows.append((g['name'], buy, g['ltp'], g['inv'], g['cur']))
+        rows.append((g['name'], g['qty'], buy, g['ltp'], g['inv'], g['cur']))
     return rows
 
 
@@ -1387,7 +1387,7 @@ def api_stocks_export():
     if not stocks:
         return jsonify({'error': 'No stocks to export'}), 400
 
-    HEAD = ['Name', 'Buy Price', 'Current Price', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss']
+    HEAD = ['Name', 'Qty', 'Buy Price', 'Current Price', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss']
     head_font = Font(bold=True, color='FFFFFF')
     head_fill = PatternFill('solid', fgColor='2563EB')
     tot_font = Font(bold=True)
@@ -1397,25 +1397,25 @@ def api_stocks_export():
         ws.append(HEAD)
         for c in ws[1]:
             c.font = head_font; c.fill = head_fill; c.alignment = Alignment(horizontal='center')
-        t_inv = t_cur = 0.0
-        for (name, buy, cur_price, inv, cur) in data_rows:
+        t_qty = t_inv = t_cur = 0.0
+        for (name, qty, buy, cur_price, inv, cur) in data_rows:
             pl = cur - inv
             pct = (pl / inv * 100) if inv else 0
-            ws.append([name, round(buy, 2), round(cur_price, 2), round(inv, 2),
+            ws.append([name, qty, round(buy, 2), round(cur_price, 2), round(inv, 2),
                        round(cur, 2), round(pl, 2), round(pct, 2) / 100])
-            t_inv += inv; t_cur += cur
+            t_qty += qty; t_inv += inv; t_cur += cur
         # Totals row.
         t_pl = t_cur - t_inv
         t_pct = (t_pl / t_inv) if t_inv else 0
-        ws.append(['TOTAL', None, None, round(t_inv, 2), round(t_cur, 2), round(t_pl, 2), round(t_pct, 4)])
+        ws.append(['TOTAL', t_qty, None, None, round(t_inv, 2), round(t_cur, 2), round(t_pl, 2), round(t_pct, 4)])
         for c in ws[ws.max_row]:
             c.font = tot_font
-        # Number formats + widths.
+        # Number formats + widths (Qty=col 2 plain; money cols 3-7; percent col 8).
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-            for col in (2, 3, 4, 5, 6):
+            for col in (3, 4, 5, 6, 7):
                 row[col - 1].number_format = money
-            row[6].number_format = '0.00%'
-        for col, w in zip('ABCDEFG', (28, 12, 14, 16, 16, 14, 16)):
+            row[7].number_format = '0.00%'
+        for col, w in zip('ABCDEFGH', (28, 8, 12, 14, 16, 16, 14, 16)):
             ws.column_dimensions[col].width = w
 
     wb = Workbook()

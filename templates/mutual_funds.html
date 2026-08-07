@@ -21,6 +21,7 @@
     </div>
   </div>
   <div id="lastUpdated" style="font-size:12px;color:#9ca3af;margin:-6px 0 12px;"></div>
+  <div id="selBar" class="sel-bar" style="display:none;"></div>
   <div id="groups"></div>
 </div>
 
@@ -202,26 +203,113 @@ function saveCollapsed() {
   localStorage.setItem('mfCollapsed', JSON.stringify([...collapsed]));
 }
 
+// ─── Row selection (subtotal + Excel export) ─────────────────────────────────
+let selected = new Set();
+let rowIndex = {};        // 'F'+id -> display data
+let platformKeys = {};    // platform -> [row keys]
+
+function selCell(r) {
+  const k = 'F' + r.id;
+  rowIndex[k] = { name: r.fund_name, units: r.units, avg: r.avg_nav, nav: r.current_nav,
+                  inv: r.invested_value, cur: r.current_value };
+  return `<td data-label="Select" style="text-align:center"><input type="checkbox" class="rowsel"
+    value="${k}" ${selected.has(k) ? 'checked' : ''}
+    onclick="event.stopPropagation();onRowSel(this)" style="cursor:pointer;width:15px;height:15px;"></td>`;
+}
+function onRowSel(cb) { cb.checked ? selected.add(cb.value) : selected.delete(cb.value); updateSelBar(); }
+function togglePlatformSelect(plat, cb) {
+  const keys = platformKeys[plat] || [];
+  keys.forEach(k => cb.checked ? selected.add(k) : selected.delete(k));
+  document.querySelectorAll('input.rowsel').forEach(x => { if (keys.includes(x.value)) x.checked = cb.checked; });
+  updateSelBar();
+}
+function clearSelection() {
+  selected.clear();
+  document.querySelectorAll('input.rowsel').forEach(x => x.checked = false);
+  updateSelBar();
+}
+function syncPlatformChecks() {
+  document.querySelectorAll('input.platchk').forEach(cb => {
+    const keys = platformKeys[cb.dataset.plat] || [];
+    const sel = keys.filter(k => selected.has(k)).length;
+    cb.checked = keys.length > 0 && sel === keys.length;
+    cb.indeterminate = sel > 0 && sel < keys.length;
+  });
+}
+function refreshSummary() {
+  let inv = 0, cur = 0, n = 0;
+  if (selected.size) {
+    selected.forEach(k => { const d = rowIndex[k]; if (d) { n++; inv += d.inv; cur += d.cur; } });
+  } else {
+    rows.forEach(r => { inv += r.invested_value; cur += r.current_value; });
+    n = rows.length;
+  }
+  document.getElementById('mfInvested').textContent = fmt(inv);
+  document.getElementById('mfCurrent').textContent = fmt(cur);
+  const g = document.getElementById('mfGain');
+  g.textContent = fmt(cur - inv);
+  g.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
+  document.getElementById('mfCount').textContent = n;
+}
+function updateSelBar() {
+  const bar = document.getElementById('selBar');
+  let n = 0, inv = 0, cur = 0;
+  selected.forEach(k => { const d = rowIndex[k]; if (d) { n++; inv += d.inv; cur += d.cur; } });
+  if (!n) { bar.style.display = 'none'; bar.innerHTML = ''; }
+  else {
+    const pl = cur - inv, pct = inv > 0 ? pl / inv * 100 : 0;
+    bar.style.display = '';
+    bar.innerHTML =
+      `<span class="sel-count">${n} selected</span>
+       <span>Invested <b>${fmt(inv)}</b></span>
+       <span>Current <b>${fmt(cur)}</b></span>
+       <span>P&amp;L <b class="${pl >= 0 ? 'gain' : 'loss'}">${pl >= 0 ? '+' : ''}${fmt(pl)}</b></span>
+       <span class="${pl >= 0 ? 'gain' : 'loss'}">${pl >= 0 ? '+' : ''}${fmtNum(pct)}%</span>
+       <span style="margin-left:auto;display:flex;gap:8px;">
+         <button class="btn btn-primary" onclick="exportSelected()">⬇ Export Excel</button>
+         <button class="btn btn-secondary" onclick="clearSelection()">Clear</button>
+       </span>`;
+  }
+  refreshSummary();
+  syncPlatformChecks();
+}
+async function exportSelected() {
+  const ids = [...selected].map(k => Number(k.slice(1)));
+  if (!ids.length) { showToast('No funds selected', 'error'); return; }
+  try {
+    const resp = await fetch('/api/mutual-funds/export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (!resp.ok) {
+      let msg = `Export failed (HTTP ${resp.status})`;
+      try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (e) {}
+      showToast(msg, 'error'); return;
+    }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `mutual_funds_selected_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    showToast(`Exported ${ids.length} fund(s)`);
+  } catch (e) { showToast('Export failed: ' + (e.message || e), 'error'); }
+}
+
 async function load() {
   [rows, bankAccounts] = await Promise.all([apiGet(API), apiGet('/api/accounts')]);
   bankAccounts = bankAccounts.filter(a => ['BANK', 'WALLET'].includes(a.account_type_code));
-  let inv = 0, cur = 0;
-  rows.forEach(r => { inv += r.invested_value; cur += r.current_value; });
-  document.getElementById('mfInvested').textContent = fmt(inv);
-  document.getElementById('mfCurrent').textContent = fmt(cur);
-  const gainEl = document.getElementById('mfGain');
-  gainEl.textContent = fmt(cur - inv);
-  gainEl.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
+  rowIndex = {}; platformKeys = {};
   const sipTotal = rows.reduce((s, r) => s + (r.monthly_sip || 0), 0);
   document.getElementById('mfSip').textContent = sipTotal ? fmt(sipTotal) : '—';
-  document.getElementById('mfCount').textContent = rows.length;
 
   const wrap = document.getElementById('groups');
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No mutual funds yet. Add one to get started.</div>'; return; }
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No mutual funds yet. Add one to get started.</div>'; refreshSummary(); return; }
 
   const platforms = [...new Set(rows.map(r => r.platform))].sort();
   wrap.innerHTML = platforms.map(plat => {
     const items = rows.filter(r => r.platform === plat);
+    platformKeys[plat] = items.map(r => 'F' + r.id);
     const pInv = items.reduce((s, r) => s + r.invested_value, 0);
     const pCur = items.reduce((s, r) => s + r.current_value, 0);
     const pPct = pInv > 0 ? (pCur - pInv) / pInv * 100 : 0;
@@ -229,6 +317,9 @@ async function load() {
     return `
       <div class="broker-group">
         <div class="broker-header" onclick="togglePlatform('${esc(plat)}')">
+          <input type="checkbox" class="platchk" data-plat="${esc(plat)}" title="Select all funds on this platform"
+                 onclick="event.stopPropagation(); togglePlatformSelect('${esc(plat)}', this)"
+                 style="cursor:pointer;width:15px;height:15px;">
           <span class="broker-caret">${isOpen ? '▾' : '▸'}</span>
           <span class="broker-name">${esc(plat)}</span>
           <span class="broker-meta">${items.length} fund${items.length>1?'s':''}
@@ -237,7 +328,7 @@ async function load() {
         <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
           <div class="table-wrap"><table class="rtable">
             <thead><tr>
-              <th>Fund</th><th style="text-align:right">Units</th>
+              <th></th><th>Fund</th><th style="text-align:right">Units</th>
               <th style="text-align:right">Avg NAV</th><th style="text-align:right">Cur NAV</th>
               <th style="text-align:right">Invested</th><th style="text-align:right">Current</th>
               <th style="text-align:right">Gain/Loss</th><th></th>
@@ -252,6 +343,7 @@ async function load() {
               }
               return `
               <tr>
+                ${selCell(r)}
                 <td data-label="Fund">${esc(r.fund_name)} ${chartBtn(r)}${sipTag}</td>
                 <td data-label="Units" style="text-align:right">${fmtNum(r.units, 3)}</td>
                 <td data-label="Avg NAV" style="text-align:right">${fmtNum(r.avg_nav)}</td>
@@ -271,6 +363,7 @@ async function load() {
       </div>`;
   }).join('');
   updateToggleAllLabel(platforms);
+  updateSelBar();
 }
 
 function togglePlatform(plat) {

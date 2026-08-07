@@ -1371,13 +1371,66 @@ def _consolidate_rows(stocks):
     return rows
 
 
+def _holdings_xlsx(head, sheets, fname):
+    """Build a multi-sheet holdings workbook and return it as a Flask Response.
+
+    `head` is the 8-column header list. `sheets` is a list of (sheet_name,
+    data_rows) where each data row is (name, qty, buy, cur_price, invested,
+    current_total). Sheet 1 is expected to be the consolidated one.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    head_font = Font(bold=True, color='FFFFFF')
+    head_fill = PatternFill('solid', fgColor='2563EB')
+    tot_font = Font(bold=True)
+    money = '#,##0.00'
+
+    def write_sheet(ws, data_rows):
+        ws.append(head)
+        for c in ws[1]:
+            c.font = head_font; c.fill = head_fill; c.alignment = Alignment(horizontal='center')
+        t_qty = t_inv = t_cur = 0.0
+        for (name, qty, buy, cur_price, inv, cur) in data_rows:
+            pl = cur - inv
+            pct = (pl / inv * 100) if inv else 0
+            ws.append([name, round(qty, 4), round(buy, 4), round(cur_price, 4), round(inv, 2),
+                       round(cur, 2), round(pl, 2), round(pct, 2) / 100])
+            t_qty += qty; t_inv += inv; t_cur += cur
+        t_pl = t_cur - t_inv
+        t_pct = (t_pl / t_inv) if t_inv else 0
+        ws.append(['TOTAL', round(t_qty, 4), None, None, round(t_inv, 2), round(t_cur, 2), round(t_pl, 2), round(t_pct, 4)])
+        for c in ws[ws.max_row]:
+            c.font = tot_font
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for col in (3, 4, 5, 6, 7):
+                row[col - 1].number_format = money
+            row[7].number_format = '0.00%'
+        for col, w in zip('ABCDEFGH', (30, 12, 12, 14, 16, 16, 14, 16)):
+            ws.column_dimensions[col].width = w
+
+    wb = Workbook()
+    used = set()
+    first = True
+    for name, rows in sheets:
+        ws = wb.active if first else wb.create_sheet()
+        ws.title = _xls_sheet_name(name, used)
+        write_sheet(ws, rows)
+        first = False
+
+    import io as _io
+    from flask import Response
+    buf = _io.BytesIO(); wb.save(buf); buf.seek(0)
+    return Response(buf.getvalue(),
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': f'attachment; filename={fname}'})
+
+
 @app.route('/api/stocks/export', methods=['POST'])
 def api_stocks_export():
     """Export selected stocks to a multi-sheet .xlsx: one sheet per broker plus
     a Consolidated sheet. Body: {"ids": [...]}. Empty/omitted ids exports all."""
     try:
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Alignment
+        import openpyxl  # noqa: F401
     except ImportError:
         return jsonify({'error': 'Excel export needs openpyxl. Run: pip install openpyxl'}), 500
 
@@ -1388,55 +1441,62 @@ def api_stocks_export():
         return jsonify({'error': 'No stocks to export'}), 400
 
     HEAD = ['Name', 'Qty', 'Buy Price', 'Current Price', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss']
-    head_font = Font(bold=True, color='FFFFFF')
-    head_fill = PatternFill('solid', fgColor='2563EB')
-    tot_font = Font(bold=True)
-    money = '#,##0.00'
+    sheets = [('Consolidated', _consolidate_rows(stocks))]
+    for acc in sorted({s.demat_account for s in stocks}):
+        sheets.append((acc, _export_rows([s for s in stocks if s.demat_account == acc])))
+    return _holdings_xlsx(HEAD, sheets, f'stocks_selected_{date.today().isoformat()}.xlsx')
 
-    def write_sheet(ws, data_rows):
-        ws.append(HEAD)
-        for c in ws[1]:
-            c.font = head_font; c.fill = head_fill; c.alignment = Alignment(horizontal='center')
-        t_qty = t_inv = t_cur = 0.0
-        for (name, qty, buy, cur_price, inv, cur) in data_rows:
-            pl = cur - inv
-            pct = (pl / inv * 100) if inv else 0
-            ws.append([name, qty, round(buy, 2), round(cur_price, 2), round(inv, 2),
-                       round(cur, 2), round(pl, 2), round(pct, 2) / 100])
-            t_qty += qty; t_inv += inv; t_cur += cur
-        # Totals row.
-        t_pl = t_cur - t_inv
-        t_pct = (t_pl / t_inv) if t_inv else 0
-        ws.append(['TOTAL', t_qty, None, None, round(t_inv, 2), round(t_cur, 2), round(t_pl, 2), round(t_pct, 4)])
-        for c in ws[ws.max_row]:
-            c.font = tot_font
-        # Number formats + widths (Qty=col 2 plain; money cols 3-7; percent col 8).
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-            for col in (3, 4, 5, 6, 7):
-                row[col - 1].number_format = money
-            row[7].number_format = '0.00%'
-        for col, w in zip('ABCDEFGH', (28, 8, 12, 14, 16, 16, 14, 16)):
-            ws.column_dimensions[col].width = w
 
-    wb = Workbook()
-    used = set()
-    # Consolidated first.
-    ws0 = wb.active
-    ws0.title = _xls_sheet_name('Consolidated', used)
-    write_sheet(ws0, _consolidate_rows(stocks))
-    # One sheet per broker.
-    brokers = sorted({s.demat_account for s in stocks})
-    for acc in brokers:
-        ws = wb.create_sheet(_xls_sheet_name(acc, used))
-        write_sheet(ws, _export_rows([s for s in stocks if s.demat_account == acc]))
+def _mf_export_rows(funds):
+    """(fund, units, avg_nav, current_nav, invested, current) tuples."""
+    out = []
+    for f in funds:
+        d = f.to_dict()
+        out.append((d['fund_name'], d['units'], d['avg_nav'], d['current_nav'],
+                    d['invested_value'], d['current_value']))
+    return out
 
-    import io as _io
-    from flask import Response
-    buf = _io.BytesIO(); wb.save(buf); buf.seek(0)
-    fname = f'stocks_selected_{date.today().isoformat()}.xlsx'
-    return Response(buf.getvalue(),
-                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    headers={'Content-Disposition': f'attachment; filename={fname}'})
+
+def _mf_consolidate_rows(funds):
+    """Aggregate by fund name: total units, weighted-avg NAV, summed inv/current."""
+    agg = {}
+    for f in funds:
+        d = f.to_dict()
+        g = agg.setdefault(d['fund_name'], {'units': 0.0, 'ua': 0.0, 'nav': d['current_nav'],
+                                            'inv': 0.0, 'cur': 0.0})
+        g['units'] += d['units'] or 0
+        g['ua'] += (d['units'] or 0) * (d['avg_nav'] or 0)
+        if d['current_nav']:
+            g['nav'] = d['current_nav']
+        g['inv'] += d['invested_value']
+        g['cur'] += d['current_value']
+    rows = []
+    for name, g in agg.items():
+        avg_nav = g['ua'] / g['units'] if g['units'] else 0
+        rows.append((name, g['units'], avg_nav, g['nav'], g['inv'], g['cur']))
+    return rows
+
+
+@app.route('/api/mutual-funds/export', methods=['POST'])
+def api_mf_export():
+    """Export selected mutual funds to a multi-sheet .xlsx: one sheet per
+    platform plus a Consolidated sheet. Body: {"ids": [...]}; empty = all."""
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        return jsonify({'error': 'Excel export needs openpyxl. Run: pip install openpyxl'}), 500
+
+    ids = (request.get_json(silent=True) or {}).get('ids') or []
+    q = MutualFund.query.filter(MutualFund.id.in_(ids)) if ids else MutualFund.query
+    funds = q.all()
+    if not funds:
+        return jsonify({'error': 'No mutual funds to export'}), 400
+
+    HEAD = ['Fund', 'Units', 'Avg NAV', 'Current NAV', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss']
+    sheets = [('Consolidated', _mf_consolidate_rows(funds))]
+    for plat in sorted({f.platform for f in funds}):
+        sheets.append((plat, _mf_export_rows([f for f in funds if f.platform == plat])))
+    return _holdings_xlsx(HEAD, sheets, f'mutual_funds_selected_{date.today().isoformat()}.xlsx')
 
 
 @app.route('/api/refresh-prices', methods=['POST'])

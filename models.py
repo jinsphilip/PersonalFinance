@@ -250,6 +250,7 @@ class Stock(db.Model):
     currency = db.Column(db.String(8), default='INR')    # native quote currency
     fx_rate = db.Column(db.Float, default=1.0)           # INR per 1 unit of `currency`
     purchase_date = db.Column(db.String(20))             # for CAGR (optional)
+    prev_close = db.Column(db.Float)                     # previous-day close (native), for daily change
 
     def to_dict(self):
         # avg_price / current_price are in the native currency; portfolio totals
@@ -282,6 +283,10 @@ class Stock(db.Model):
             'gain_loss_pct': round(gain_pct, 2),
             'purchase_date': self.purchase_date,
             'cagr_pct': self._cagr(invested_native, current_native),
+            'prev_close': self.prev_close,
+            'day_change': round(self.current_price - self.prev_close, 2) if self.prev_close else None,
+            'day_change_pct': round((self.current_price - self.prev_close) / self.prev_close * 100, 2)
+                              if self.prev_close else None,
         }
 
     def _cagr(self, invested_native, current_native):

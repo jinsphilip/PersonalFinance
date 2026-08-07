@@ -142,6 +142,15 @@ function tvUrl(r) {
 function tvLink(r) {
   return `<a href="${tvUrl(r)}" target="_blank" rel="noopener" class="tv-link" title="Open ${esc(r.ticker)} in TradingView" onclick="event.stopPropagation()">📈</a>`;
 }
+// Daily change vs previous close: arrow + native price move + %, colored.
+function dayCell(r) {
+  if (r.day_change_pct == null || r.day_change == null)
+    return '<span style="color:#9ca3af">—</span>';
+  const up = r.day_change >= 0, sym = ccy(r.currency);
+  return `<span class="${up ? 'gain' : 'loss'}">${up ? '▲' : '▼'} ${sym}${fmtNum(Math.abs(r.day_change))}`
+       + ` (${up ? '+' : ''}${fmtNum(r.day_change_pct)}%)</span>`;
+}
+
 // Screener.in link (Indian stocks only — NSE/BSE).
 function screenerLink(r) {
   const ex = (r.exchange || '').toUpperCase();
@@ -233,6 +242,7 @@ const COLS = [
   { key: 'quantity', label: 'Qty', num: true, align: 'right' },
   { key: 'avg_price', label: 'Avg', num: true, align: 'right' },
   { key: 'current_price', label: 'LTP', num: true, align: 'right' },
+  { key: 'day_change_pct', label: 'Day Δ', num: true, align: 'right' },
   { key: 'invested_value', label: 'Invested', num: true, align: 'right' },
   { key: 'current_value', label: 'Current', num: true, align: 'right' },
   { key: 'gain_loss_pct', label: 'Gain/Loss', num: true, align: 'right' },
@@ -439,6 +449,7 @@ async function load() {
                 <td data-label="Qty" style="text-align:right">${r.quantity}</td>
                 <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
                 <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
+                <td data-label="Day Δ" style="text-align:right">${dayCell(r)}</td>
                 <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
                 <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
                 <td data-label="Gain/Loss" style="text-align:right">${gainPctBadge(r.gain_loss_pct)}${r.cagr_pct!=null?`<br><span class="badge badge-gray" title="Annualised return (CAGR) since purchase date">${r.cagr_pct}%/yr</span>`:''}</td>
@@ -461,12 +472,6 @@ function toggleBroker(acc) {
   load();
 }
 
-function toggleInclude(acc) {
-  if (excluded.has(acc)) excluded.delete(acc); else excluded.add(acc);
-  saveExcluded();
-  load();
-}
-
 // Aggregate included rows by ticker into one consolidated row each.
 function consolidate(items) {
   const map = {};
@@ -477,6 +482,8 @@ function consolidate(items) {
         id: r.id, ticker: r.ticker, company_name: r.company_name, exchange: r.exchange,
         currency: r.currency, quantity: 0, _qa: 0,
         invested_value: 0, current_value: 0, current_price: r.current_price, demats: [],
+        // Same across demats of a ticker (shared LTP + prev close).
+        day_change: r.day_change, day_change_pct: r.day_change_pct,
       };
     }
     const g = map[k];
@@ -512,6 +519,7 @@ function renderConsolidated(wrap, source) {
           <td data-label="Qty" style="text-align:right">${r.quantity}</td>
           <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
           <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
+                <td data-label="Day Δ" style="text-align:right">${dayCell(r)}</td>
           <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
           <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
           <td data-label="Gain/Loss" style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>

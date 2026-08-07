@@ -265,7 +265,7 @@ def ensure_legacy_columns():
         'credits': [('account_id', 'INTEGER')],
         'chit_funds': [('account_id', 'INTEGER')],
         'stocks': [('currency', "VARCHAR(8) DEFAULT 'INR'"), ('fx_rate', 'FLOAT DEFAULT 1.0'),
-                   ('purchase_date', 'VARCHAR(20)')],
+                   ('purchase_date', 'VARCHAR(20)'), ('prev_close', 'FLOAT')],
         'mutual_funds': [
             ('is_sip', 'BOOLEAN DEFAULT 0'), ('sip_amount', 'FLOAT DEFAULT 0'),
             ('sip_day', 'INTEGER'), ('sip_frequency', "VARCHAR(15) DEFAULT 'monthly'"),
@@ -1484,9 +1484,11 @@ def api_refresh_prices():
     quotes = prices.fetch_stock_prices_bulk(stocks_to_refresh)
     fx_cache = {'INR': 1.0}   # currency → INR rate, fetched at most once per refresh
     for s in stocks_to_refresh:
-        price, currency = quotes.get(id(s), (None, None))
+        price, currency, prev_close = quotes.get(id(s), (None, None, None))
         if price is not None:
             s.current_price = price
+            if prev_close is not None:
+                s.prev_close = prev_close
             s.last_updated = today
             cur = (currency or s.currency or 'INR').upper()
             s.currency = cur

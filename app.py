@@ -1374,39 +1374,51 @@ def _consolidate_rows(stocks):
 def _holdings_xlsx(head, sheets, fname):
     """Build a multi-sheet holdings workbook and return it as a Flask Response.
 
-    `head` is the 8-column header list. `sheets` is a list of (sheet_name,
-    data_rows) where each data row is (name, qty, buy, cur_price, invested,
-    current_total). Sheet 1 is expected to be the consolidated one.
+    `head` is the header list — the 8 standard columns, optionally followed by
+    extra column labels. `sheets` is a list of (sheet_name, data_rows) where
+    each data row is (name, qty, buy, cur_price, invested, current_total) plus
+    one trailing value per extra column. Sheet 1 is the consolidated one.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
     head_font = Font(bold=True, color='FFFFFF')
     head_fill = PatternFill('solid', fgColor='2563EB')
     tot_font = Font(bold=True)
     money = '#,##0.00'
+    n_extra = max(0, len(head) - 8)
 
     def write_sheet(ws, data_rows):
         ws.append(head)
         for c in ws[1]:
             c.font = head_font; c.fill = head_fill; c.alignment = Alignment(horizontal='center')
         t_qty = t_inv = t_cur = 0.0
-        for (name, qty, buy, cur_price, inv, cur) in data_rows:
+        t_extra = [0.0] * n_extra
+        for row in data_rows:
+            name, qty, buy, cur_price, inv, cur = row[:6]
+            extras = list(row[6:6 + n_extra])
             pl = cur - inv
             pct = (pl / inv * 100) if inv else 0
             ws.append([name, round(qty, 4), round(buy, 4), round(cur_price, 4), round(inv, 2),
-                       round(cur, 2), round(pl, 2), round(pct, 2) / 100])
+                       round(cur, 2), round(pl, 2), round(pct, 2) / 100]
+                      + [round(e, 2) if isinstance(e, (int, float)) else e for e in extras])
             t_qty += qty; t_inv += inv; t_cur += cur
+            for i, e in enumerate(extras):
+                if isinstance(e, (int, float)):
+                    t_extra[i] += e
         t_pl = t_cur - t_inv
         t_pct = (t_pl / t_inv) if t_inv else 0
-        ws.append(['TOTAL', round(t_qty, 4), None, None, round(t_inv, 2), round(t_cur, 2), round(t_pl, 2), round(t_pct, 4)])
+        ws.append(['TOTAL', round(t_qty, 4), None, None, round(t_inv, 2), round(t_cur, 2), round(t_pl, 2), round(t_pct, 4)]
+                  + [round(e, 2) for e in t_extra])
         for c in ws[ws.max_row]:
             c.font = tot_font
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-            for col in (3, 4, 5, 6, 7):
+            for col in [3, 4, 5, 6, 7] + list(range(9, 9 + n_extra)):
                 row[col - 1].number_format = money
             row[7].number_format = '0.00%'
-        for col, w in zip('ABCDEFGH', (30, 12, 12, 14, 16, 16, 14, 16)):
-            ws.column_dimensions[col].width = w
+        widths = [30, 12, 12, 14, 16, 16, 14, 16] + [16] * n_extra
+        for i, w in enumerate(widths):
+            ws.column_dimensions[get_column_letter(i + 1)].width = w
 
     wb = Workbook()
     used = set()
@@ -1448,32 +1460,34 @@ def api_stocks_export():
 
 
 def _mf_export_rows(funds):
-    """(fund, units, avg_nav, current_nav, invested, current) tuples."""
+    """(fund, units, avg_nav, current_nav, invested, current, sip_monthly) tuples.
+    sip_monthly is the SIP amount normalised to a monthly figure (0 if not a SIP)."""
     out = []
     for f in funds:
         d = f.to_dict()
         out.append((d['fund_name'], d['units'], d['avg_nav'], d['current_nav'],
-                    d['invested_value'], d['current_value']))
+                    d['invested_value'], d['current_value'], d.get('monthly_sip') or 0))
     return out
 
 
 def _mf_consolidate_rows(funds):
-    """Aggregate by fund name: total units, weighted-avg NAV, summed inv/current."""
+    """Aggregate by fund name: total units, weighted-avg NAV, summed inv/current/SIP."""
     agg = {}
     for f in funds:
         d = f.to_dict()
         g = agg.setdefault(d['fund_name'], {'units': 0.0, 'ua': 0.0, 'nav': d['current_nav'],
-                                            'inv': 0.0, 'cur': 0.0})
+                                            'inv': 0.0, 'cur': 0.0, 'sip': 0.0})
         g['units'] += d['units'] or 0
         g['ua'] += (d['units'] or 0) * (d['avg_nav'] or 0)
         if d['current_nav']:
             g['nav'] = d['current_nav']
         g['inv'] += d['invested_value']
         g['cur'] += d['current_value']
+        g['sip'] += d.get('monthly_sip') or 0
     rows = []
     for name, g in agg.items():
         avg_nav = g['ua'] / g['units'] if g['units'] else 0
-        rows.append((name, g['units'], avg_nav, g['nav'], g['inv'], g['cur']))
+        rows.append((name, g['units'], avg_nav, g['nav'], g['inv'], g['cur'], g['sip']))
     return rows
 
 
@@ -1492,7 +1506,7 @@ def api_mf_export():
     if not funds:
         return jsonify({'error': 'No mutual funds to export'}), 400
 
-    HEAD = ['Fund', 'Units', 'Avg NAV', 'Current NAV', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss']
+    HEAD = ['Fund', 'Units', 'Avg NAV', 'Current NAV', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss', 'SIP (monthly)']
     sheets = [('Consolidated', _mf_consolidate_rows(funds))]
     for plat in sorted({f.platform for f in funds}):
         sheets.append((plat, _mf_export_rows([f for f in funds if f.platform == plat])))

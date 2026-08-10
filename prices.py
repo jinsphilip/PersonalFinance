@@ -11,6 +11,9 @@ import requests
 
 AMFI_NAV_URL = 'https://www.amfiindia.com/spages/NAVAll.txt'
 YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}'
+# Yahoo serves the same chart API from two hosts; query1 intermittently 404s /
+# rate-limits individual symbols that query2 returns fine, so we try both.
+_YAHOO_HOSTS = ('query1.finance.yahoo.com', 'query2.finance.yahoo.com')
 
 # Yahoo expects a browser-ish User-Agent or it sometimes returns 403.
 _HEADERS = {'User-Agent': 'Mozilla/5.0 (compatible; FinTracker/1.0)'}
@@ -47,8 +50,14 @@ def fetch_amfi_navs(timeout=20):
 
 def _yahoo_symbol(ticker, exchange):
     """Map a ticker + exchange to a Yahoo symbol. US exchanges → bare ticker;
-    NSE/BSE → .NS/.BO suffix."""
+    NSE/BSE → .NS/.BO suffix. A suffix the user already typed (e.g. entering
+    'STOVEKRAFT.NS') is stripped first so we never double-suffix into an
+    unresolvable 'STOVEKRAFT.NS.NS'."""
     t = ticker.strip().upper()
+    for suf in ('.NS', '.BO'):
+        if t.endswith(suf):
+            t = t[:-len(suf)]
+            break
     ex = (exchange or 'NSE').upper()
     if ex in _US_EXCHANGES:
         return t
@@ -56,29 +65,47 @@ def _yahoo_symbol(ticker, exchange):
     return f'{t}.{suffix}'
 
 
+def _yahoo_quote(symbol, timeout):
+    """Query a single Yahoo symbol across both hosts. Returns (price, currency,
+    prev_close) or None if neither host resolves it."""
+    for host in _YAHOO_HOSTS:
+        try:
+            resp = requests.get(
+                f'https://{host}/v8/finance/chart/{symbol}',
+                headers=_HEADERS, timeout=timeout,
+            )
+            if resp.status_code != 200:
+                continue
+            meta = resp.json()['chart']['result'][0]['meta']
+            price = meta.get('regularMarketPrice')
+            if price is None:
+                continue
+            prev = meta.get('chartPreviousClose', meta.get('previousClose'))
+            return (float(price), meta.get('currency'),
+                    float(prev) if prev is not None else None)
+        except Exception:
+            continue
+    return None
+
+
 def fetch_stock_price(ticker, exchange='NSE', timeout=15):
     """Return (price, currency, prev_close) for a ticker, or (None, None, None).
 
-    `currency` comes from Yahoo's meta (e.g. 'INR', 'USD') so the caller can
-    convert non-INR quotes to INR for portfolio totals. `prev_close` is the
-    previous trading day's close (native currency) for computing the daily
-    change; it may be None if Yahoo doesn't report it.
+    Tries both Yahoo hosts for the resolved symbol, and for Indian tickers falls
+    back to the other exchange suffix (.NS <-> .BO) when the primary doesn't
+    resolve. `currency` comes from Yahoo's meta; `prev_close` is the previous
+    trading day's close (native currency) for the daily change.
     """
-    symbol = _yahoo_symbol(ticker, exchange)
-    try:
-        resp = requests.get(
-            YAHOO_CHART_URL.format(symbol=symbol),
-            headers=_HEADERS, timeout=timeout,
-        )
-        resp.raise_for_status()
-        meta = resp.json()['chart']['result'][0]['meta']
-        price = meta.get('regularMarketPrice')
-        currency = meta.get('currency')
-        prev = meta.get('chartPreviousClose', meta.get('previousClose'))
-        return (float(price) if price is not None else None, currency,
-                float(prev) if prev is not None else None)
-    except Exception:
-        return (None, None, None)
+    candidates = [_yahoo_symbol(ticker, exchange)]
+    ex = (exchange or 'NSE').upper()
+    if ex in _EXCHANGE_SUFFIX:                    # Indian: try the sibling exchange too
+        alt = 'BSE' if ex == 'NSE' else 'NSE'
+        candidates.append(_yahoo_symbol(ticker, alt))
+    for sym in candidates:
+        res = _yahoo_quote(sym, timeout)
+        if res is not None:
+            return res
+    return (None, None, None)
 
 
 def fetch_stock_prices_bulk(items, timeout=8, max_workers=12):

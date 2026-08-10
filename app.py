@@ -125,7 +125,8 @@ def _password_from_bat():
 def _resolve_password():
     """Login password from (in order): env var, password.txt, set_api_key.bat.
     Works regardless of how the app is launched."""
-    return (os.environ.get('FINTRACKER_PASSWORD') or _password_from_txt()
+    return (os.environ.get('FINTRACKER_PASSWORD'
+    '') or _password_from_txt()
             or _password_from_bat())
 
 

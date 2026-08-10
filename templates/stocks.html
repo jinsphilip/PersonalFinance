@@ -147,11 +147,11 @@ function dayValue(r) {
 function prevValue(r) {
   return r.prev_close != null ? r.prev_close * (r.quantity || 0) * (r.fx_rate || 1) : 0;
 }
-// Overall day's-change card across all holdings (value + %).
-function setDayCard() {
+// Day's-change card for the given holdings (value + %).
+function setDayCard(set) {
   const el = document.getElementById('sDay');
   if (!el) return;
-  const priced = rows.filter(r => r.day_change != null && r.prev_close != null);
+  const priced = (set || rows).filter(r => r.day_change != null && r.prev_close != null);
   if (!priced.length) { el.textContent = '—'; el.className = 'card-value'; return; }
   const dv = priced.reduce((s, r) => s + dayValue(r), 0);
   const pv = priced.reduce((s, r) => s + prevValue(r), 0);
@@ -375,21 +375,25 @@ function syncBrokerChecks() {
     cb.indeterminate = sel > 0 && sel < keys.length;
   });
 }
-// Top summary cards: selected rows if any are ticked, otherwise the whole book.
+// The actual holdings the summary reflects: selected rows if any are ticked
+// (consolidated keys expand to every demat holding), otherwise the whole book.
+function summaryStockRows() {
+  if (!selected.size) return rows;
+  const ids = new Set(selectedStockIds());
+  return rows.filter(r => ids.has(r.id));
+}
+// Top summary cards, incl. Day's Change — all follow the current selection.
 function refreshSummary() {
-  let inv = 0, cur = 0, n = 0;
-  if (selected.size) {
-    selected.forEach(k => { const d = rowIndex[k]; if (d) { n++; inv += d.inv; cur += d.cur; } });
-  } else {
-    rows.forEach(r => { inv += r.invested_value; cur += r.current_value; });
-    n = rows.length;
-  }
+  const set = summaryStockRows();
+  let inv = 0, cur = 0;
+  set.forEach(r => { inv += r.invested_value; cur += r.current_value; });
   document.getElementById('sInvested').textContent = fmt(inv);
   document.getElementById('sCurrent').textContent = fmt(cur);
   const g = document.getElementById('sGain');
   g.textContent = fmt(cur - inv);
   g.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
-  document.getElementById('sCount').textContent = n;
+  document.getElementById('sCount').textContent = selected.size ? selected.size : rows.length;
+  setDayCard(set);
 }
 function updateSelBar() {
   const bar = document.getElementById('selBar');
@@ -459,7 +463,6 @@ async function load(skipFetch) {
   document.getElementById('viewBtn').textContent = view === 'broker' ? 'Consolidated view' : 'By broker view';
   document.getElementById('toggleAllBtn').style.display = view === 'broker' ? '' : 'none';
 
-  setDayCard();
   const wrap = document.getElementById('groups');
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; refreshSummary(); return; }
 

@@ -925,6 +925,32 @@ def api_stocks():
         return jsonify([s.to_dict() for s in Stock.query.all()])
     data = request.json
     currency = (data.get('currency') or 'INR').upper()
+    demat = (data['demat_account'] or '').strip()
+    ticker = (data['ticker'] or '').strip().upper()
+    add_qty = int(data['quantity'])
+    add_price = float(data['avg_price'])
+
+    # If this (demat, ticker) already exists, average the buy price and add the
+    # quantity into that holding instead of creating a duplicate row.
+    existing = Stock.query.filter(
+        Stock.demat_account == demat,
+        db.func.upper(Stock.ticker) == ticker,
+    ).first()
+    if existing:
+        total = existing.quantity + add_qty
+        if total > 0:
+            existing.avg_price = (existing.quantity * existing.avg_price + add_qty * add_price) / total
+        existing.quantity = total
+        # Refresh current price / metadata from the new entry where provided.
+        if data.get('current_price'):
+            existing.current_price = float(data['current_price'])
+        if data.get('sector'):
+            existing.sector = data['sector']
+        if data.get('purchase_date'):
+            existing.purchase_date = data['purchase_date']
+        db.session.commit()
+        return jsonify({**existing.to_dict(), 'merged': True}), 200
+
     # Resolve fx: explicit value > live lookup for non-INR > 1.0 fallback.
     if data.get('fx_rate'):
         fx_rate = float(data['fx_rate'])
@@ -933,9 +959,9 @@ def api_stocks():
     else:
         fx_rate = 1.0
     s = Stock(
-        demat_account=data['demat_account'], company_name=data['company_name'],
-        ticker=data['ticker'], quantity=int(data['quantity']),
-        avg_price=float(data['avg_price']), current_price=float(data['current_price']),
+        demat_account=demat, company_name=data['company_name'],
+        ticker=ticker, quantity=add_qty,
+        avg_price=add_price, current_price=float(data['current_price']),
         sector=data.get('sector', ''), exchange=data.get('exchange', 'NSE'),
         last_updated=data.get('last_updated', ''),
         currency=currency, fx_rate=fx_rate,

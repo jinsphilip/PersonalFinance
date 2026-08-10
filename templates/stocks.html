@@ -562,9 +562,14 @@ async function saveForm(e) {
   const data = formToObject('stockForm');
   const id = data.id;
   try {
-    if (id) await apiSend(`${API}/${id}`, 'PUT', data);
-    else await apiSend(API, 'POST', data);
-    closeModal('formModal'); showToast('Saved'); load();
+    let res;
+    if (id) res = await apiSend(`${API}/${id}`, 'PUT', data);
+    else res = await apiSend(API, 'POST', data);
+    closeModal('formModal');
+    showToast(res && res.merged
+      ? `Merged into existing ${esc(res.ticker)} — avg buy ₹${fmtNum(res.avg_price)}, qty ${res.quantity}`
+      : 'Saved');
+    load();
   } catch { showToast('Save failed', 'error'); }
   return false;
 }

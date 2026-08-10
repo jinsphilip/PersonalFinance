@@ -7,6 +7,7 @@
   <div class="card"><div class="card-label">Invested</div><div class="card-value" id="sInvested">—</div></div>
   <div class="card"><div class="card-label">Current Value</div><div class="card-value" id="sCurrent">—</div></div>
   <div class="card"><div class="card-label">Total Gain/Loss</div><div class="card-value" id="sGain">—</div></div>
+  <div class="card"><div class="card-label">Day's Change</div><div class="card-value" id="sDay">—</div></div>
   <div class="card"><div class="card-label">Holdings</div><div class="card-value" id="sCount">—</div></div>
 </div>
 
@@ -14,6 +15,8 @@
   <div class="section-header">
     <span class="section-title">Equity Holdings</span>
     <div class="actions">
+      <input id="filterBox" type="search" placeholder="Filter by name or ticker…" oninput="onFilter(this.value)"
+             style="padding:7px 10px;border:1px solid var(--border,#e6e9ee);border-radius:8px;font-size:13px;min-width:180px;">
       <button class="btn btn-secondary" id="viewBtn" onclick="toggleView()">Consolidated view</button>
       <button class="btn btn-secondary" id="toggleAllBtn" onclick="toggleAll()">Collapse all</button>
       <button class="btn btn-secondary" id="refreshBtn">↻ Refresh Prices</button>
@@ -121,6 +124,51 @@ let view = localStorage.getItem('stockView') || 'broker';
 let selected = new Set();
 let rowIndex = {};
 let brokerKeys = {};
+let filterText = '';
+
+// Case-insensitive filter on company name / ticker.
+function matchesFilter(r) {
+  if (!filterText) return true;
+  const q = filterText.toLowerCase();
+  return (r.company_name || '').toLowerCase().includes(q)
+      || (r.ticker || '').toLowerCase().includes(q);
+}
+let _filterTimer = null;
+function onFilter(v) {
+  filterText = v.trim();
+  clearTimeout(_filterTimer);
+  _filterTimer = setTimeout(() => load(true), 120);   // re-render only, no refetch
+}
+
+// INR day-change value + previous value for a holding (null-safe).
+function dayValue(r) {
+  return r.day_change != null ? r.day_change * (r.quantity || 0) * (r.fx_rate || 1) : 0;
+}
+function prevValue(r) {
+  return r.prev_close != null ? r.prev_close * (r.quantity || 0) * (r.fx_rate || 1) : 0;
+}
+// Overall day's-change card across all holdings (value + %).
+function setDayCard() {
+  const el = document.getElementById('sDay');
+  if (!el) return;
+  const priced = rows.filter(r => r.day_change != null && r.prev_close != null);
+  if (!priced.length) { el.textContent = '—'; el.className = 'card-value'; return; }
+  const dv = priced.reduce((s, r) => s + dayValue(r), 0);
+  const pv = priced.reduce((s, r) => s + prevValue(r), 0);
+  const pct = pv > 0 ? dv / pv * 100 : 0;
+  el.textContent = `${dv >= 0 ? '+' : ''}${fmt(dv)} (${dv >= 0 ? '+' : ''}${fmtNum(pct)}%)`;
+  el.className = 'card-value ' + (dv >= 0 ? 'green' : 'red');
+}
+// Aggregate day-change badge for a set of holdings (value + %), or '' if none priced.
+function dayTotalBadge(items) {
+  const priced = items.filter(r => r.day_change != null && r.prev_close != null);
+  if (!priced.length) return '';
+  const dv = priced.reduce((s, r) => s + dayValue(r), 0);
+  const pv = priced.reduce((s, r) => s + prevValue(r), 0);
+  const pct = pv > 0 ? dv / pv * 100 : 0;
+  const up = dv >= 0;
+  return ` · Day <span class="${up ? 'gain' : 'loss'}">${up ? '+' : ''}${fmt(dv)} (${up ? '+' : ''}${fmtNum(pct)}%)</span>`;
+}
 
 function saveCollapsed() { localStorage.setItem('stockCollapsed', JSON.stringify([...collapsed])); }
 
@@ -403,22 +451,30 @@ async function exportSelected() {
   } catch (e) { showToast('Export failed: ' + (e.message || e), 'error'); }
 }
 
-async function load() {
-  rows = await apiGet(API);
+async function load(skipFetch) {
+  if (!skipFetch) rows = await apiGet(API);
   rowIndex = {}; brokerKeys = {};   // rebuilt as rows render below
 
   // Toggle visibility of broker-only controls.
   document.getElementById('viewBtn').textContent = view === 'broker' ? 'Consolidated view' : 'By broker view';
   document.getElementById('toggleAllBtn').style.display = view === 'broker' ? '' : 'none';
 
+  setDayCard();
   const wrap = document.getElementById('groups');
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; refreshSummary(); return; }
 
-  if (view === 'consolidated') { renderConsolidated(wrap, rows); return; }
+  // Apply the text filter (both views).
+  const shown = rows.filter(matchesFilter);
+  if (filterText && !shown.length) {
+    wrap.innerHTML = `<div class="empty">No holdings match “${esc(filterText)}”.</div>`;
+    refreshSummary(); updateSelBar(); return;
+  }
 
-  const accounts = [...new Set(rows.map(r => r.demat_account))].sort();
+  if (view === 'consolidated') { renderConsolidated(wrap, shown); return; }
+
+  const accounts = [...new Set(shown.map(r => r.demat_account))].sort();
   wrap.innerHTML = accounts.map(acc => {
-    const items = sortItems(rows.filter(r => r.demat_account === acc));
+    const items = sortItems(shown.filter(r => r.demat_account === acc));
     brokerKeys[acc] = items.map(selKey);
     const aInv = items.reduce((s, r) => s + r.invested_value, 0);
     const aCur = items.reduce((s, r) => s + r.current_value, 0);
@@ -436,7 +492,7 @@ async function load() {
           <span class="broker-meta">${items.length} holding${items.length>1?'s':''}
             · Inv ${fmt(aInv)} · Cur ${fmt(aCur)}
             · <span class="${aPL>=0?'gain':'loss'}">${aPL>=0?'+':''}${fmt(aPL)}</span>
-            · ${gainPctBadge(aPct)}</span>
+            · ${gainPctBadge(aPct)}${dayTotalBadge(items)}</span>
         </div>
         <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
           <div class="table-wrap"><table class="rtable">

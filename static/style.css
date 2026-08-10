@@ -207,6 +207,15 @@ tbody tr:hover td { background: var(--surface-2); }
 .tv-link:hover { opacity: 1; }
 
 /* Failed-refresh list */
+.tag-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.tag-bar-label { font-size: 12.5px; color: #6b7280; font-weight: 600; }
+.tag-chip { border: 1px solid var(--border, #e6e9ee); background: #fff; color: #374151; border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.tag-chip:hover { border-color: var(--brand, #2563eb); color: var(--brand, #2563eb); }
+.tag-chip.active { background: var(--brand, #2563eb); border-color: var(--brand, #2563eb); color: #fff; }
+.tag-chip .tag-count { background: rgba(0,0,0,.08); border-radius: 999px; padding: 0 6px; font-size: 11px; }
+.tag-chip.active .tag-count { background: rgba(255,255,255,.25); }
+.tag-badge { display: inline-block; background: #eef2ff; color: #4338ca; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-left: 4px; cursor: pointer; vertical-align: middle; }
+.tag-badge:hover { background: #4338ca; color: #fff; }
 .sel-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; background: var(--brand-soft, #eff6ff); border: 1px solid var(--brand, #2563eb); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 14px; font-size: 13.5px; }
 .sel-bar .sel-count { font-weight: 700; color: var(--brand, #2563eb); }
 .sel-bar b { font-weight: 700; }

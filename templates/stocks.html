@@ -25,6 +25,7 @@
   </div>
   <div id="lastUpdated" style="font-size:12px;color:#9ca3af;margin:-6px 0 12px;"></div>
   <div id="refreshFailed"></div>
+  <div id="tagBar" class="tag-bar"></div>
   <div id="selBar" class="sel-bar" style="display:none;"></div>
   <div id="groups"></div>
 </div>
@@ -68,6 +69,10 @@
         </div>
         <div class="form-row single">
           <div class="form-group"><label>Purchase Date (for CAGR — optional)</label><input name="purchase_date" type="date"></div>
+        </div>
+        <div class="form-row single">
+          <div class="form-group"><label>Tags (comma-separated — e.g. Watchlist, Long-term)</label>
+            <input name="tags" placeholder="Optional — group/monitor stocks by tag"></div>
         </div>
         <p style="font-size:12px;color:#6b7280;margin-top:4px;">
           Enter prices in the stock's own currency. For non-INR stocks the USD→INR
@@ -125,13 +130,39 @@ let selected = new Set();
 let rowIndex = {};
 let brokerKeys = {};
 let filterText = '';
+let tagFilter = localStorage.getItem('stockTagFilter') || '';   // active tag, '' = all
 
-// Case-insensitive filter on company name / ticker.
+// Case-insensitive filter on company name / ticker + active tag.
 function matchesFilter(r) {
+  if (tagFilter && !(r.tags || []).some(t => t.toLowerCase() === tagFilter.toLowerCase()))
+    return false;
   if (!filterText) return true;
   const q = filterText.toLowerCase();
   return (r.company_name || '').toLowerCase().includes(q)
-      || (r.ticker || '').toLowerCase().includes(q);
+      || (r.ticker || '').toLowerCase().includes(q)
+      || (r.tags || []).some(t => t.toLowerCase().includes(q));
+}
+
+// Build the tag chip bar from all tags in the book; clicking a chip filters.
+function renderTagBar() {
+  const bar = document.getElementById('tagBar');
+  if (!bar) return;
+  const counts = {};
+  rows.forEach(r => (r.tags || []).forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
+  const tags = Object.keys(counts).sort((a, b) => a.localeCompare(b));
+  if (!tags.length) { bar.innerHTML = ''; bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  const chip = (label, val, extra) =>
+    `<button class="tag-chip${tagFilter === val ? ' active' : ''}" onclick="setTagFilter('${esc(val)}')">${esc(label)}${extra || ''}</button>`;
+  bar.innerHTML =
+    `<span class="tag-bar-label">Tags:</span>` +
+    chip('All', '', ` (${rows.length})`) +
+    tags.map(t => chip(t, t, ` <span class="tag-count">${counts[t]}</span>`)).join('');
+}
+function setTagFilter(t) {
+  tagFilter = (tagFilter === t) ? '' : t;      // click active chip to clear
+  localStorage.setItem('stockTagFilter', tagFilter);
+  load(true);                                   // re-render only
 }
 let _filterTimer = null;
 function onFilter(v) {
@@ -190,6 +221,14 @@ function tvUrl(r) {
 function tvLink(r) {
   return `<a href="${tvUrl(r)}" target="_blank" rel="noopener" class="tv-link" title="Open ${esc(r.ticker)} in TradingView" onclick="event.stopPropagation()">📈</a>`;
 }
+// Small clickable tag badges for a holding.
+function tagBadges(r) {
+  if (!r.tags || !r.tags.length) return '';
+  return ' ' + r.tags.map(t =>
+    `<span class="tag-badge" title="Filter by ${esc(t)}" onclick="event.stopPropagation();setTagFilter('${esc(t)}')">${esc(t)}</span>`
+  ).join('');
+}
+
 // Daily change vs previous close: arrow + native price move + %, colored.
 function dayCell(r) {
   if (r.day_change_pct == null || r.day_change == null)
@@ -463,13 +502,15 @@ async function load(skipFetch) {
   document.getElementById('viewBtn').textContent = view === 'broker' ? 'Consolidated view' : 'By broker view';
   document.getElementById('toggleAllBtn').style.display = view === 'broker' ? '' : 'none';
 
+  renderTagBar();
   const wrap = document.getElementById('groups');
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; refreshSummary(); return; }
 
-  // Apply the text filter (both views).
+  // Apply the tag + text filters (both views).
   const shown = rows.filter(matchesFilter);
-  if (filterText && !shown.length) {
-    wrap.innerHTML = `<div class="empty">No holdings match “${esc(filterText)}”.</div>`;
+  if (!shown.length) {
+    const what = tagFilter ? `tag “${esc(tagFilter)}”` : `“${esc(filterText)}”`;
+    wrap.innerHTML = `<div class="empty">No holdings match ${what}.</div>`;
     refreshSummary(); updateSelBar(); return;
   }
 
@@ -503,7 +544,7 @@ async function load(skipFetch) {
             <tbody>${items.map(r => `
               <tr>
                 ${selCell(r)}
-                <td data-label="Company">${esc(r.company_name)}</td>
+                <td data-label="Company">${esc(r.company_name)}${tagBadges(r)}</td>
                 <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)} ${screenerLink(r)}</td>
                 <td data-label="Qty" style="text-align:right">${r.quantity}</td>
                 <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
@@ -542,9 +583,10 @@ function consolidate(items) {
         currency: r.currency, quantity: 0, _qa: 0,
         invested_value: 0, current_value: 0, current_price: r.current_price, demats: [],
         // Same across demats of a ticker (shared LTP + prev close).
-        day_change: r.day_change, day_change_pct: r.day_change_pct,
+        day_change: r.day_change, day_change_pct: r.day_change_pct, tags: [],
       };
     }
+    (r.tags || []).forEach(t => { if (!map[k].tags.includes(t)) map[k].tags.push(t); });
     const g = map[k];
     g.quantity += Number(r.quantity) || 0;
     g._qa += (Number(r.quantity) || 0) * (Number(r.avg_price) || 0);
@@ -573,7 +615,7 @@ function renderConsolidated(wrap, source) {
       <tbody>${items.map(r => `
         <tr>
           ${selCell(r)}
-          <td data-label="Company">${esc(r.company_name)}</td>
+          <td data-label="Company">${esc(r.company_name)}${tagBadges(r)}</td>
           <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)} ${screenerLink(r)}</td>
           <td data-label="Qty" style="text-align:right">${r.quantity}</td>
           <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>

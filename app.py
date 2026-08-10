@@ -266,7 +266,7 @@ def ensure_legacy_columns():
         'credits': [('account_id', 'INTEGER')],
         'chit_funds': [('account_id', 'INTEGER')],
         'stocks': [('currency', "VARCHAR(8) DEFAULT 'INR'"), ('fx_rate', 'FLOAT DEFAULT 1.0'),
-                   ('purchase_date', 'VARCHAR(20)'), ('prev_close', 'FLOAT')],
+                   ('purchase_date', 'VARCHAR(20)'), ('prev_close', 'FLOAT'), ('tags', 'VARCHAR(255)')],
         'mutual_funds': [
             ('is_sip', 'BOOLEAN DEFAULT 0'), ('sip_amount', 'FLOAT DEFAULT 0'),
             ('sip_day', 'INTEGER'), ('sip_frequency', "VARCHAR(15) DEFAULT 'monthly'"),
@@ -920,6 +920,21 @@ def api_ai_backtest():
 
 # ─── Stocks ────────────────────────────────────────────────────────────────────
 
+def _norm_tags(raw):
+    """Normalise a tags input (list or comma string) to a clean comma string."""
+    if isinstance(raw, list):
+        parts = raw
+    else:
+        parts = (raw or '').split(',')
+    seen, out = set(), []
+    for p in parts:
+        t = str(p).strip()
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return ', '.join(out)
+
+
 @app.route('/api/stocks', methods=['GET', 'POST'])
 def api_stocks():
     if request.method == 'GET':
@@ -949,6 +964,8 @@ def api_stocks():
             existing.sector = data['sector']
         if data.get('purchase_date'):
             existing.purchase_date = data['purchase_date']
+        if 'tags' in data:
+            existing.tags = _norm_tags(data.get('tags'))
         db.session.commit()
         return jsonify({**existing.to_dict(), 'merged': True}), 200
 
@@ -967,6 +984,7 @@ def api_stocks():
         last_updated=data.get('last_updated', ''),
         currency=currency, fx_rate=fx_rate,
         purchase_date=data.get('purchase_date', ''),
+        tags=_norm_tags(data.get('tags')),
     )
     db.session.add(s)
     db.session.commit()
@@ -1108,6 +1126,8 @@ def api_stock(id):
             s.fx_rate = 1.0
     if 'fx_rate' in data:
         s.fx_rate = float(data.get('fx_rate') or s.fx_rate or 1.0)
+    if 'tags' in data:
+        s.tags = _norm_tags(data.get('tags'))
     db.session.commit()
     return jsonify(s.to_dict())
 

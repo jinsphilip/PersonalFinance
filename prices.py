@@ -5,6 +5,8 @@ special configuration is needed in a proxied environment. All network calls are
 wrapped defensively: on any failure the caller keeps the previously stored value
 and the symbol is reported as failed instead of raising.
 """
+from concurrent.futures import ThreadPoolExecutor
+
 import requests
 
 AMFI_NAV_URL = 'https://www.amfiindia.com/spages/NAVAll.txt'
@@ -55,10 +57,12 @@ def _yahoo_symbol(ticker, exchange):
 
 
 def fetch_stock_price(ticker, exchange='NSE', timeout=15):
-    """Return (price, currency) for a ticker, or (None, None) on failure.
+    """Return (price, currency, prev_close) for a ticker, or (None, None, None).
 
     `currency` comes from Yahoo's meta (e.g. 'INR', 'USD') so the caller can
-    convert non-INR quotes to INR for portfolio totals.
+    convert non-INR quotes to INR for portfolio totals. `prev_close` is the
+    previous trading day's close (native currency) for computing the daily
+    change; it may be None if Yahoo doesn't report it.
     """
     symbol = _yahoo_symbol(ticker, exchange)
     try:
@@ -70,9 +74,34 @@ def fetch_stock_price(ticker, exchange='NSE', timeout=15):
         meta = resp.json()['chart']['result'][0]['meta']
         price = meta.get('regularMarketPrice')
         currency = meta.get('currency')
-        return (float(price) if price is not None else None, currency)
+        prev = meta.get('chartPreviousClose', meta.get('previousClose'))
+        return (float(price) if price is not None else None, currency,
+                float(prev) if prev is not None else None)
     except Exception:
-        return (None, None)
+        return (None, None, None)
+
+
+def fetch_stock_prices_bulk(items, timeout=8, max_workers=12):
+    """Fetch many stock quotes concurrently.
+
+    `items` is an iterable of objects with `.ticker` and `.exchange`. Returns a
+    dict keyed by id(item) -> (price, currency, prev_close), so the caller applies results
+    to the ORM objects on the main thread (network in threads, DB writes single-
+    threaded). One slow ticker no longer blocks the rest.
+    """
+    items = list(items)
+    if not items:
+        return {}
+    workers = min(max_workers, len(items))
+
+    def _one(it):
+        return id(it), fetch_stock_price(it.ticker, it.exchange, timeout=timeout)
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for key, val in pool.map(_one, items):
+            results[key] = val
+    return results
 
 
 def fetch_stock_history(ticker, exchange='NSE', rng='1y', interval='1d', timeout=20):

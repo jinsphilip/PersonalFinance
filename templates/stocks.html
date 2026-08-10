@@ -22,6 +22,7 @@
   </div>
   <div id="lastUpdated" style="font-size:12px;color:#9ca3af;margin:-6px 0 12px;"></div>
   <div id="refreshFailed"></div>
+  <div id="selBar" class="sel-bar" style="display:none;"></div>
   <div id="groups"></div>
 </div>
 
@@ -106,21 +107,27 @@
 const API = '/api/stocks';
 let rows = [];
 let tvChart = null, tvResize = null;
-// Collapsed + summary-excluded broker names persist across reloads.
+// Collapsed broker names persist across reloads.
 let collapsed = new Set(JSON.parse(localStorage.getItem('stockCollapsed') || '[]'));
-let excluded = new Set(JSON.parse(localStorage.getItem('stockExcluded') || '[]'));
 // Sort state for the holdings grids.
 let sortKey = localStorage.getItem('stockSortKey') || 'current_value';
 let sortDir = localStorage.getItem('stockSortDir') || 'desc';
 // View mode: 'broker' (grouped) or 'consolidated' (one row per scrip).
 let view = localStorage.getItem('stockView') || 'broker';
 
+// Per-row selection for the subtotal + CSV export. `selected` holds selection
+// keys; `rowIndex` maps each currently-rendered key to its display data and
+// `brokerKeys` maps a broker -> its row keys. Rebuilt on every load().
+let selected = new Set();
+let rowIndex = {};
+let brokerKeys = {};
+
 function saveCollapsed() { localStorage.setItem('stockCollapsed', JSON.stringify([...collapsed])); }
-function saveExcluded() { localStorage.setItem('stockExcluded', JSON.stringify([...excluded])); }
 
 function toggleView() {
   view = view === 'broker' ? 'consolidated' : 'broker';
   localStorage.setItem('stockView', view);
+  selected.clear();               // selection keys differ between the two views
   load();
 }
 
@@ -134,6 +141,22 @@ function tvUrl(r) {
 }
 function tvLink(r) {
   return `<a href="${tvUrl(r)}" target="_blank" rel="noopener" class="tv-link" title="Open ${esc(r.ticker)} in TradingView" onclick="event.stopPropagation()">📈</a>`;
+}
+// Daily change vs previous close: arrow + native price move + %, colored.
+function dayCell(r) {
+  if (r.day_change_pct == null || r.day_change == null)
+    return '<span style="color:#9ca3af">—</span>';
+  const up = r.day_change >= 0, sym = ccy(r.currency);
+  return `<span class="${up ? 'gain' : 'loss'}">${up ? '▲' : '▼'} ${sym}${fmtNum(Math.abs(r.day_change))}`
+       + ` (${up ? '+' : ''}${fmtNum(r.day_change_pct)}%)</span>`;
+}
+
+// Screener.in link (Indian stocks only — NSE/BSE).
+function screenerLink(r) {
+  const ex = (r.exchange || '').toUpperCase();
+  if (ex !== 'NSE' && ex !== 'BSE') return '';
+  const url = `https://www.screener.in/company/${encodeURIComponent((r.ticker || '').toUpperCase())}/`;
+  return `<a href="${url}" target="_blank" rel="noopener" class="tv-link" title="Open ${esc(r.ticker)} on Screener.in" onclick="event.stopPropagation()">🔎</a>`;
 }
 function chartBtn(r) {
   // Consolidated rows (have `demats`) pass their weighted avg + current so the
@@ -219,6 +242,7 @@ const COLS = [
   { key: 'quantity', label: 'Qty', num: true, align: 'right' },
   { key: 'avg_price', label: 'Avg', num: true, align: 'right' },
   { key: 'current_price', label: 'LTP', num: true, align: 'right' },
+  { key: 'day_change_pct', label: 'Day Δ', num: true, align: 'right' },
   { key: 'invested_value', label: 'Invested', num: true, align: 'right' },
   { key: 'current_value', label: 'Current', num: true, align: 'right' },
   { key: 'gain_loss_pct', label: 'Gain/Loss', num: true, align: 'right' },
@@ -247,64 +271,185 @@ function headerRow() {
     const arrow = sortKey === c.key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
     return `<th style="text-align:${c.align};cursor:pointer;user-select:none" onclick="sortBy('${c.key}')">${c.label}${arrow}</th>`;
   }).join('');
-  return `<tr>${cells}<th></th></tr>`;
+  // Broker view: the per-broker checkbox is the select-all, so this column
+  // header is just a spacer for the row checkboxes.
+  return `<tr><th></th>${cells}<th></th></tr>`;
 }
 
-async function load() {
-  rows = await apiGet(API);
+// ─── Row selection (subtotal + export) ───────────────────────────────────────
+// Broker rows key by stock id; consolidated rows key by ticker.
+function selKey(r) { return r.demats ? 'C' + r.ticker : 'S' + r.id; }
 
-  // Summary reflects only brokers that are *checked* (not excluded).
-  const included = rows.filter(r => !excluded.has(r.demat_account));
-  let inv = 0, cur = 0;
-  included.forEach(r => { inv += r.invested_value; cur += r.current_value; });
+// Record a rendered row's display data and return its checkbox cell.
+function selCell(r) {
+  const k = selKey(r);
+  rowIndex[k] = {
+    name: r.company_name, ticker: r.ticker, ccy: r.currency,
+    avg: Number(r.avg_price) || 0, ltp: Number(r.current_price) || 0,
+    inv: Number(r.invested_value) || 0, cur: Number(r.current_value) || 0,
+  };
+  return `<td data-label="Select" style="text-align:center"><input type="checkbox" class="rowsel"
+    value="${k}" ${selected.has(k) ? 'checked' : ''}
+    onclick="event.stopPropagation();onRowSel(this)" style="cursor:pointer;width:15px;height:15px;"></td>`;
+}
+function selHeaderCell() {
+  return `<th style="text-align:center"><input type="checkbox" title="Select all"
+    onclick="selectAll(this)" style="cursor:pointer;width:15px;height:15px;"></th>`;
+}
+function onRowSel(cb) { cb.checked ? selected.add(cb.value) : selected.delete(cb.value); updateSelBar(); }
+function selectAll(cb) {   // consolidated view header select-all
+  cb.closest('table').querySelectorAll('tbody input.rowsel').forEach(x => {
+    x.checked = cb.checked;
+    cb.checked ? selected.add(x.value) : selected.delete(x.value);
+  });
+  updateSelBar();
+}
+// Broker-name checkbox: select / deselect every holding in that broker.
+function toggleBrokerSelect(acc, cb) {
+  const keys = brokerKeys[acc] || [];
+  keys.forEach(k => cb.checked ? selected.add(k) : selected.delete(k));
+  document.querySelectorAll('input.rowsel').forEach(x => {
+    if (keys.includes(x.value)) x.checked = cb.checked;
+  });
+  updateSelBar();
+}
+function clearSelection() {
+  selected.clear();
+  document.querySelectorAll('input.rowsel').forEach(x => x.checked = false);
+  updateSelBar();
+}
+// Reflect partial/full selection on each broker checkbox.
+function syncBrokerChecks() {
+  document.querySelectorAll('input.brokerchk').forEach(cb => {
+    const keys = brokerKeys[cb.dataset.acc] || [];
+    const sel = keys.filter(k => selected.has(k)).length;
+    cb.checked = keys.length > 0 && sel === keys.length;
+    cb.indeterminate = sel > 0 && sel < keys.length;
+  });
+}
+// Top summary cards: selected rows if any are ticked, otherwise the whole book.
+function refreshSummary() {
+  let inv = 0, cur = 0, n = 0;
+  if (selected.size) {
+    selected.forEach(k => { const d = rowIndex[k]; if (d) { n++; inv += d.inv; cur += d.cur; } });
+  } else {
+    rows.forEach(r => { inv += r.invested_value; cur += r.current_value; });
+    n = rows.length;
+  }
   document.getElementById('sInvested').textContent = fmt(inv);
   document.getElementById('sCurrent').textContent = fmt(cur);
   const g = document.getElementById('sGain');
   g.textContent = fmt(cur - inv);
   g.className = 'card-value ' + (cur - inv >= 0 ? 'green' : 'red');
-  document.getElementById('sCount').textContent = included.length;
+  document.getElementById('sCount').textContent = n;
+}
+function updateSelBar() {
+  const bar = document.getElementById('selBar');
+  let n = 0, inv = 0, cur = 0;
+  selected.forEach(k => { const d = rowIndex[k]; if (d) { n++; inv += d.inv; cur += d.cur; } });
+  if (!n) { bar.style.display = 'none'; bar.innerHTML = ''; }
+  else {
+    const pl = cur - inv, pct = inv > 0 ? pl / inv * 100 : 0;
+    bar.style.display = '';
+    bar.innerHTML =
+      `<span class="sel-count">${n} selected</span>
+       <span>Invested <b>${fmt(inv)}</b></span>
+       <span>Current <b>${fmt(cur)}</b></span>
+       <span>P&amp;L <b class="${pl >= 0 ? 'gain' : 'loss'}">${pl >= 0 ? '+' : ''}${fmt(pl)}</b></span>
+       <span class="${pl >= 0 ? 'gain' : 'loss'}">${pl >= 0 ? '+' : ''}${fmtNum(pct)}%</span>
+       <span style="margin-left:auto;display:flex;gap:8px;">
+         <button class="btn btn-primary" onclick="exportSelected()">⬇ Export Excel</button>
+         <button class="btn btn-secondary" onclick="clearSelection()">Clear</button>
+       </span>`;
+  }
+  refreshSummary();
+  syncBrokerChecks();
+}
+
+// Resolve the current selection to underlying stock ids (consolidated keys
+// expand to every demat holding of that ticker).
+function selectedStockIds() {
+  const ids = new Set();
+  selected.forEach(k => {
+    if (k[0] === 'S') ids.add(Number(k.slice(1)));
+    else if (k[0] === 'C') rows.forEach(r => { if (r.ticker === k.slice(1)) ids.add(r.id); });
+  });
+  return [...ids];
+}
+// Server builds a multi-sheet .xlsx: one sheet per broker + a Consolidated sheet.
+async function exportSelected() {
+  const ids = selectedStockIds();
+  if (!ids.length) { showToast('No rows selected', 'error'); return; }
+  try {
+    const resp = await fetch('/api/stocks/export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (!resp.ok) {
+      // Surface the server's explanation (e.g. "needs openpyxl…") instead of a
+      // generic failure.
+      let msg = `Export failed (HTTP ${resp.status})`;
+      try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (e) {}
+      showToast(msg, 'error');
+      return;
+    }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `stocks_selected_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    showToast(`Exported ${ids.length} stock(s)`);
+  } catch (e) { showToast('Export failed: ' + (e.message || e), 'error'); }
+}
+
+async function load() {
+  rows = await apiGet(API);
+  rowIndex = {}; brokerKeys = {};   // rebuilt as rows render below
 
   // Toggle visibility of broker-only controls.
   document.getElementById('viewBtn').textContent = view === 'broker' ? 'Consolidated view' : 'By broker view';
   document.getElementById('toggleAllBtn').style.display = view === 'broker' ? '' : 'none';
 
   const wrap = document.getElementById('groups');
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; return; }
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No stocks yet. Add one to get started.</div>'; refreshSummary(); return; }
 
-  if (view === 'consolidated') { renderConsolidated(wrap, included); return; }
+  if (view === 'consolidated') { renderConsolidated(wrap, rows); return; }
 
   const accounts = [...new Set(rows.map(r => r.demat_account))].sort();
   wrap.innerHTML = accounts.map(acc => {
     const items = sortItems(rows.filter(r => r.demat_account === acc));
+    brokerKeys[acc] = items.map(selKey);
     const aInv = items.reduce((s, r) => s + r.invested_value, 0);
     const aCur = items.reduce((s, r) => s + r.current_value, 0);
     const aPL = aCur - aInv;
     const aPct = aInv > 0 ? aPL / aInv * 100 : 0;
     const isOpen = !collapsed.has(acc);
-    const isIncluded = !excluded.has(acc);
     return `
-      <div class="broker-group${isIncluded ? '' : ' broker-excluded'}">
+      <div class="broker-group">
         <div class="broker-header" onclick="toggleBroker('${esc(acc)}')">
-          <input type="checkbox" title="Include in summary" ${isIncluded ? 'checked' : ''}
-                 onclick="event.stopPropagation(); toggleInclude('${esc(acc)}')"
+          <input type="checkbox" class="brokerchk" data-acc="${esc(acc)}" title="Select all holdings in this broker"
+                 onclick="event.stopPropagation(); toggleBrokerSelect('${esc(acc)}', this)"
                  style="cursor:pointer;width:15px;height:15px;">
           <span class="broker-caret">${isOpen ? '▾' : '▸'}</span>
           <span class="broker-name">${esc(acc)}</span>
           <span class="broker-meta">${items.length} holding${items.length>1?'s':''}
             · Inv ${fmt(aInv)} · Cur ${fmt(aCur)}
             · <span class="${aPL>=0?'gain':'loss'}">${aPL>=0?'+':''}${fmt(aPL)}</span>
-            · ${gainPctBadge(aPct)}${isIncluded ? '' : ' · <span style="color:#9ca3af">excluded</span>'}</span>
+            · ${gainPctBadge(aPct)}</span>
         </div>
         <div class="broker-body" style="display:${isOpen ? 'block' : 'none'}">
           <div class="table-wrap"><table class="rtable">
             <thead>${headerRow()}</thead>
             <tbody>${items.map(r => `
               <tr>
+                ${selCell(r)}
                 <td data-label="Company">${esc(r.company_name)}</td>
-                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)}</td>
+                <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)} ${screenerLink(r)}</td>
                 <td data-label="Qty" style="text-align:right">${r.quantity}</td>
                 <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
                 <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
+                <td data-label="Day Δ" style="text-align:right">${dayCell(r)}</td>
                 <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
                 <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
                 <td data-label="Gain/Loss" style="text-align:right">${gainPctBadge(r.gain_loss_pct)}${r.cagr_pct!=null?`<br><span class="badge badge-gray" title="Annualised return (CAGR) since purchase date">${r.cagr_pct}%/yr</span>`:''}</td>
@@ -318,17 +463,12 @@ async function load() {
       </div>`;
   }).join('');
   updateToggleAllLabel(accounts);
+  updateSelBar();
 }
 
 function toggleBroker(acc) {
   if (collapsed.has(acc)) collapsed.delete(acc); else collapsed.add(acc);
   saveCollapsed();
-  load();
-}
-
-function toggleInclude(acc) {
-  if (excluded.has(acc)) excluded.delete(acc); else excluded.add(acc);
-  saveExcluded();
   load();
 }
 
@@ -342,6 +482,8 @@ function consolidate(items) {
         id: r.id, ticker: r.ticker, company_name: r.company_name, exchange: r.exchange,
         currency: r.currency, quantity: 0, _qa: 0,
         invested_value: 0, current_value: 0, current_price: r.current_price, demats: [],
+        // Same across demats of a ticker (shared LTP + prev close).
+        day_change: r.day_change, day_change_pct: r.day_change_pct,
       };
     }
     const g = map[k];
@@ -359,23 +501,25 @@ function consolidate(items) {
   });
 }
 
-function renderConsolidated(wrap, included) {
-  const items = sortItems(consolidate(included));
-  if (!items.length) { wrap.innerHTML = '<div class="empty">No included holdings. Tick a broker in By Broker view.</div>'; return; }
+function renderConsolidated(wrap, source) {
+  const items = sortItems(consolidate(source));
+  if (!items.length) { wrap.innerHTML = '<div class="empty">No holdings yet.</div>'; refreshSummary(); return; }
   const header = COLS.map(c => {
     const arrow = sortKey === c.key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
     return `<th style="text-align:${c.align};cursor:pointer;user-select:none" onclick="sortBy('${c.key}')">${c.label}${arrow}</th>`;
   }).join('');
   wrap.innerHTML = `
     <div class="table-wrap"><table class="rtable">
-      <thead><tr>${header}<th>Demats</th></tr></thead>
+      <thead><tr>${selHeaderCell()}${header}<th>Demats</th></tr></thead>
       <tbody>${items.map(r => `
         <tr>
+          ${selCell(r)}
           <td data-label="Company">${esc(r.company_name)}</td>
-          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)}</td>
+          <td data-label="Ticker">${esc(r.ticker)} <span class="badge badge-gray">${esc(r.exchange)}</span>${r.currency && r.currency !== 'INR' ? ` <span class="badge badge-orange">${esc(r.currency)}</span>` : ''} ${chartBtn(r)} ${screenerLink(r)}</td>
           <td data-label="Qty" style="text-align:right">${r.quantity}</td>
           <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
           <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
+                <td data-label="Day Δ" style="text-align:right">${dayCell(r)}</td>
           <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
           <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
           <td data-label="Gain/Loss" style="text-align:right">${gainPctBadge(r.gain_loss_pct)}</td>
@@ -383,6 +527,7 @@ function renderConsolidated(wrap, included) {
         </tr>`).join('')}</tbody>
     </table></div>
     <p style="font-size:12px;color:#9ca3af;margin-top:10px;">Rows are aggregated across demats. Switch to By broker view to edit individual holdings.</p>`;
+  updateSelBar();
 }
 
 function toggleAll() {

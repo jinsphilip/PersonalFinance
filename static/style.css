@@ -207,6 +207,10 @@ tbody tr:hover td { background: var(--surface-2); }
 .tv-link:hover { opacity: 1; }
 
 /* Failed-refresh list */
+.sel-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; background: var(--brand-soft, #eff6ff); border: 1px solid var(--brand, #2563eb); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 14px; font-size: 13.5px; }
+.sel-bar .sel-count { font-weight: 700; color: var(--brand, #2563eb); }
+.sel-bar b { font-weight: 700; }
+.sel-bar .btn { padding: 6px 12px; }
 .failed-box { background: var(--warn-soft); border: 1px solid #fcd34d; border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 14px; }
 .failed-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13.5px; font-weight: 650; color: #92400e; }
 .failed-list { margin: 8px 0 0; padding-left: 20px; columns: 2; }

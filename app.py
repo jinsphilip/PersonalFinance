@@ -39,7 +39,11 @@ else:
     _BASE = os.path.dirname(os.path.abspath(__file__))
     _inst = os.path.join(_BASE, 'instance', 'finance.db')
     _root = os.path.join(_BASE, 'finance.db')
-    if os.path.exists(_inst):
+    # Tests / CI set FINTRACKER_DB to a throwaway file so they never touch real data.
+    _override = os.environ.get('FINTRACKER_DB')
+    if _override:
+        db_path = _override
+    elif os.path.exists(_inst):
         db_path = _inst
     elif os.path.exists(_root):
         db_path = _root
@@ -261,7 +265,7 @@ def ensure_legacy_columns():
         'credits': [('account_id', 'INTEGER')],
         'chit_funds': [('account_id', 'INTEGER')],
         'stocks': [('currency', "VARCHAR(8) DEFAULT 'INR'"), ('fx_rate', 'FLOAT DEFAULT 1.0'),
-                   ('purchase_date', 'VARCHAR(20)')],
+                   ('purchase_date', 'VARCHAR(20)'), ('prev_close', 'FLOAT')],
         'mutual_funds': [
             ('is_sip', 'BOOLEAN DEFAULT 0'), ('sip_amount', 'FLOAT DEFAULT 0'),
             ('sip_day', 'INTEGER'), ('sip_frequency', "VARCHAR(15) DEFAULT 'monthly'"),
@@ -1324,6 +1328,191 @@ def api_credit_recover(id):
 
 # ─── Live Price Refresh ────────────────────────────────────────────────────────
 
+def _xls_sheet_name(name, used):
+    """Excel sheet names: <=31 chars, none of []:*?/\\, and unique."""
+    clean = ''.join(c for c in str(name) if c not in '[]:*?/\\') or 'Sheet'
+    clean = clean[:31]
+    base, i = clean, 1
+    while clean in used:
+        suffix = f'~{i}'
+        clean = base[:31 - len(suffix)] + suffix
+        i += 1
+    used.add(clean)
+    return clean
+
+
+def _export_rows(stocks):
+    """(name, qty, buy, current, invested, current_total) tuples from Stock rows."""
+    out = []
+    for s in stocks:
+        d = s.to_dict()
+        out.append((d['company_name'], s.quantity or 0, d['avg_price'], d['current_price'],
+                    d['invested_value'], d['current_value']))
+    return out
+
+
+def _consolidate_rows(stocks):
+    """Aggregate by ticker: total qty, weighted-avg buy price, summed inv/current."""
+    agg = {}
+    for s in stocks:
+        d = s.to_dict()
+        g = agg.setdefault(d['ticker'], {'name': d['company_name'], 'qa': 0.0, 'qty': 0.0,
+                                         'ltp': d['current_price'], 'inv': 0.0, 'cur': 0.0})
+        g['qty'] += s.quantity or 0
+        g['qa'] += (s.quantity or 0) * (d['avg_price'] or 0)
+        if d['current_price']:
+            g['ltp'] = d['current_price']
+        g['inv'] += d['invested_value']
+        g['cur'] += d['current_value']
+    rows = []
+    for g in agg.values():
+        buy = g['qa'] / g['qty'] if g['qty'] else 0
+        rows.append((g['name'], g['qty'], buy, g['ltp'], g['inv'], g['cur']))
+    return rows
+
+
+def _holdings_xlsx(head, sheets, fname):
+    """Build a multi-sheet holdings workbook and return it as a Flask Response.
+
+    `head` is the header list — the 8 standard columns, optionally followed by
+    extra column labels. `sheets` is a list of (sheet_name, data_rows) where
+    each data row is (name, qty, buy, cur_price, invested, current_total) plus
+    one trailing value per extra column. Sheet 1 is the consolidated one.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    head_font = Font(bold=True, color='FFFFFF')
+    head_fill = PatternFill('solid', fgColor='2563EB')
+    tot_font = Font(bold=True)
+    money = '#,##0.00'
+    n_extra = max(0, len(head) - 8)
+
+    def write_sheet(ws, data_rows):
+        ws.append(head)
+        for c in ws[1]:
+            c.font = head_font; c.fill = head_fill; c.alignment = Alignment(horizontal='center')
+        t_qty = t_inv = t_cur = 0.0
+        t_extra = [0.0] * n_extra
+        for row in data_rows:
+            name, qty, buy, cur_price, inv, cur = row[:6]
+            extras = list(row[6:6 + n_extra])
+            pl = cur - inv
+            pct = (pl / inv * 100) if inv else 0
+            ws.append([name, round(qty, 4), round(buy, 4), round(cur_price, 4), round(inv, 2),
+                       round(cur, 2), round(pl, 2), round(pct, 2) / 100]
+                      + [round(e, 2) if isinstance(e, (int, float)) else e for e in extras])
+            t_qty += qty; t_inv += inv; t_cur += cur
+            for i, e in enumerate(extras):
+                if isinstance(e, (int, float)):
+                    t_extra[i] += e
+        t_pl = t_cur - t_inv
+        t_pct = (t_pl / t_inv) if t_inv else 0
+        ws.append(['TOTAL', round(t_qty, 4), None, None, round(t_inv, 2), round(t_cur, 2), round(t_pl, 2), round(t_pct, 4)]
+                  + [round(e, 2) for e in t_extra])
+        for c in ws[ws.max_row]:
+            c.font = tot_font
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for col in [3, 4, 5, 6, 7] + list(range(9, 9 + n_extra)):
+                row[col - 1].number_format = money
+            row[7].number_format = '0.00%'
+        widths = [30, 12, 12, 14, 16, 16, 14, 16] + [16] * n_extra
+        for i, w in enumerate(widths):
+            ws.column_dimensions[get_column_letter(i + 1)].width = w
+
+    wb = Workbook()
+    used = set()
+    first = True
+    for name, rows in sheets:
+        ws = wb.active if first else wb.create_sheet()
+        ws.title = _xls_sheet_name(name, used)
+        write_sheet(ws, rows)
+        first = False
+
+    import io as _io
+    from flask import Response
+    buf = _io.BytesIO(); wb.save(buf); buf.seek(0)
+    return Response(buf.getvalue(),
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': f'attachment; filename={fname}'})
+
+
+@app.route('/api/stocks/export', methods=['POST'])
+def api_stocks_export():
+    """Export selected stocks to a multi-sheet .xlsx: one sheet per broker plus
+    a Consolidated sheet. Body: {"ids": [...]}. Empty/omitted ids exports all."""
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        return jsonify({'error': 'Excel export needs openpyxl. Run: pip install openpyxl'}), 500
+
+    ids = (request.get_json(silent=True) or {}).get('ids') or []
+    q = Stock.query.filter(Stock.id.in_(ids)) if ids else Stock.query
+    stocks = q.all()
+    if not stocks:
+        return jsonify({'error': 'No stocks to export'}), 400
+
+    HEAD = ['Name', 'Qty', 'Buy Price', 'Current Price', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss']
+    sheets = [('Consolidated', _consolidate_rows(stocks))]
+    for acc in sorted({s.demat_account for s in stocks}):
+        sheets.append((acc, _export_rows([s for s in stocks if s.demat_account == acc])))
+    return _holdings_xlsx(HEAD, sheets, f'stocks_selected_{date.today().isoformat()}.xlsx')
+
+
+def _mf_export_rows(funds):
+    """(fund, units, avg_nav, current_nav, invested, current, sip_monthly) tuples.
+    sip_monthly is the SIP amount normalised to a monthly figure (0 if not a SIP)."""
+    out = []
+    for f in funds:
+        d = f.to_dict()
+        out.append((d['fund_name'], d['units'], d['avg_nav'], d['current_nav'],
+                    d['invested_value'], d['current_value'], d.get('monthly_sip') or 0))
+    return out
+
+
+def _mf_consolidate_rows(funds):
+    """Aggregate by fund name: total units, weighted-avg NAV, summed inv/current/SIP."""
+    agg = {}
+    for f in funds:
+        d = f.to_dict()
+        g = agg.setdefault(d['fund_name'], {'units': 0.0, 'ua': 0.0, 'nav': d['current_nav'],
+                                            'inv': 0.0, 'cur': 0.0, 'sip': 0.0})
+        g['units'] += d['units'] or 0
+        g['ua'] += (d['units'] or 0) * (d['avg_nav'] or 0)
+        if d['current_nav']:
+            g['nav'] = d['current_nav']
+        g['inv'] += d['invested_value']
+        g['cur'] += d['current_value']
+        g['sip'] += d.get('monthly_sip') or 0
+    rows = []
+    for name, g in agg.items():
+        avg_nav = g['ua'] / g['units'] if g['units'] else 0
+        rows.append((name, g['units'], avg_nav, g['nav'], g['inv'], g['cur'], g['sip']))
+    return rows
+
+
+@app.route('/api/mutual-funds/export', methods=['POST'])
+def api_mf_export():
+    """Export selected mutual funds to a multi-sheet .xlsx: one sheet per
+    platform plus a Consolidated sheet. Body: {"ids": [...]}; empty = all."""
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        return jsonify({'error': 'Excel export needs openpyxl. Run: pip install openpyxl'}), 500
+
+    ids = (request.get_json(silent=True) or {}).get('ids') or []
+    q = MutualFund.query.filter(MutualFund.id.in_(ids)) if ids else MutualFund.query
+    funds = q.all()
+    if not funds:
+        return jsonify({'error': 'No mutual funds to export'}), 400
+
+    HEAD = ['Fund', 'Units', 'Avg NAV', 'Current NAV', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss', 'SIP (monthly)']
+    sheets = [('Consolidated', _mf_consolidate_rows(funds))]
+    for plat in sorted({f.platform for f in funds}):
+        sheets.append((plat, _mf_export_rows([f for f in funds if f.platform == plat])))
+    return _holdings_xlsx(HEAD, sheets, f'mutual_funds_selected_{date.today().isoformat()}.xlsx')
+
+
 @app.route('/api/refresh-prices', methods=['POST'])
 def api_refresh_prices():
     """Refresh prices. `scope` (query or JSON) = 'stocks', 'funds', or 'all'
@@ -1364,11 +1553,16 @@ def api_refresh_prices():
             stocks_to_refresh = [s for s in stocks_to_refresh
                                  if (s.exchange or '').upper() in ('NYSE', 'NASDAQ', 'NMS', 'NYQ', 'US', 'AMEX', 'ARCA')]
 
+    # Fetch every quote concurrently — one slow/timing-out ticker no longer
+    # stalls the whole refresh (was a sequential loop of blocking HTTP calls).
+    quotes = prices.fetch_stock_prices_bulk(stocks_to_refresh)
     fx_cache = {'INR': 1.0}   # currency → INR rate, fetched at most once per refresh
     for s in stocks_to_refresh:
-        price, currency = prices.fetch_stock_price(s.ticker, s.exchange)
+        price, currency, prev_close = quotes.get(id(s), (None, None, None))
         if price is not None:
             s.current_price = price
+            if prev_close is not None:
+                s.prev_close = prev_close
             s.last_updated = today
             cur = (currency or s.currency or 'INR').upper()
             s.currency = cur

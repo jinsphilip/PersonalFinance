@@ -1388,18 +1388,21 @@ def _xls_sheet_name(name, used):
     return clean
 
 
-def _export_rows(stocks):
-    """(name, qty, buy, current, invested, current_total) tuples from Stock rows."""
+def _export_rows(stocks, total_cur=0):
+    """(name, qty, buy, current, invested, current_total, weight_fraction) tuples.
+    weight = holding current value / total portfolio current value."""
     out = []
     for s in stocks:
         d = s.to_dict()
+        w = (d['current_value'] / total_cur) if total_cur else 0
         out.append((d['company_name'], s.quantity or 0, d['avg_price'], d['current_price'],
-                    d['invested_value'], d['current_value']))
+                    d['invested_value'], d['current_value'], w))
     return out
 
 
-def _consolidate_rows(stocks):
-    """Aggregate by ticker: total qty, weighted-avg buy price, summed inv/current."""
+def _consolidate_rows(stocks, total_cur=0):
+    """Aggregate by ticker: total qty, weighted-avg buy price, summed inv/current,
+    and portfolio weight (current value / total current value)."""
     agg = {}
     for s in stocks:
         d = s.to_dict()
@@ -1414,17 +1417,20 @@ def _consolidate_rows(stocks):
     rows = []
     for g in agg.values():
         buy = g['qa'] / g['qty'] if g['qty'] else 0
-        rows.append((g['name'], g['qty'], buy, g['ltp'], g['inv'], g['cur']))
+        w = (g['cur'] / total_cur) if total_cur else 0
+        rows.append((g['name'], g['qty'], buy, g['ltp'], g['inv'], g['cur'], w))
     return rows
 
 
-def _holdings_xlsx(head, sheets, fname):
+def _holdings_xlsx(head, sheets, fname, extra_formats=None):
     """Build a multi-sheet holdings workbook and return it as a Flask Response.
 
     `head` is the header list — the 8 standard columns, optionally followed by
     extra column labels. `sheets` is a list of (sheet_name, data_rows) where
     each data row is (name, qty, buy, cur_price, invested, current_total) plus
-    one trailing value per extra column. Sheet 1 is the consolidated one.
+    one trailing value per extra column. `extra_formats` gives each extra
+    column's format ('money' default or 'percent'; percent values are fractions).
+    Sheet 1 is the consolidated one.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -1434,6 +1440,12 @@ def _holdings_xlsx(head, sheets, fname):
     tot_font = Font(bold=True)
     money = '#,##0.00'
     n_extra = max(0, len(head) - 8)
+    fmts = (extra_formats or []) + ['money'] * n_extra
+
+    def _round_extra(e, i):
+        if not isinstance(e, (int, float)):
+            return e
+        return round(e, 4) if fmts[i] == 'percent' else round(e, 2)
 
     def write_sheet(ws, data_rows):
         ws.append(head)
@@ -1448,7 +1460,7 @@ def _holdings_xlsx(head, sheets, fname):
             pct = (pl / inv * 100) if inv else 0
             ws.append([name, round(qty, 4), round(buy, 4), round(cur_price, 4), round(inv, 2),
                        round(cur, 2), round(pl, 2), round(pct, 2) / 100]
-                      + [round(e, 2) if isinstance(e, (int, float)) else e for e in extras])
+                      + [_round_extra(e, i) for i, e in enumerate(extras)])
             t_qty += qty; t_inv += inv; t_cur += cur
             for i, e in enumerate(extras):
                 if isinstance(e, (int, float)):
@@ -1456,13 +1468,15 @@ def _holdings_xlsx(head, sheets, fname):
         t_pl = t_cur - t_inv
         t_pct = (t_pl / t_inv) if t_inv else 0
         ws.append(['TOTAL', round(t_qty, 4), None, None, round(t_inv, 2), round(t_cur, 2), round(t_pl, 2), round(t_pct, 4)]
-                  + [round(e, 2) for e in t_extra])
+                  + [_round_extra(e, i) for i, e in enumerate(t_extra)])
         for c in ws[ws.max_row]:
             c.font = tot_font
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-            for col in [3, 4, 5, 6, 7] + list(range(9, 9 + n_extra)):
+            for col in [3, 4, 5, 6, 7]:
                 row[col - 1].number_format = money
             row[7].number_format = '0.00%'
+            for i in range(n_extra):
+                row[8 + i].number_format = '0.00%' if fmts[i] == 'percent' else money
         widths = [30, 12, 12, 14, 16, 16, 14, 16] + [16] * n_extra
         for i, w in enumerate(widths):
             ws.column_dimensions[get_column_letter(i + 1)].width = w
@@ -1499,11 +1513,13 @@ def api_stocks_export():
     if not stocks:
         return jsonify({'error': 'No stocks to export'}), 400
 
-    HEAD = ['Name', 'Qty', 'Buy Price', 'Current Price', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss']
-    sheets = [('Consolidated', _consolidate_rows(stocks))]
+    total_cur = sum(s.to_dict()['current_value'] for s in stocks)
+    HEAD = ['Name', 'Qty', 'Buy Price', 'Current Price', 'Invested Total', 'Current Total', 'P&L', '% Profit & Loss', 'Weight']
+    sheets = [('Consolidated', _consolidate_rows(stocks, total_cur))]
     for acc in sorted({s.demat_account for s in stocks}):
-        sheets.append((acc, _export_rows([s for s in stocks if s.demat_account == acc])))
-    return _holdings_xlsx(HEAD, sheets, f'stocks_selected_{date.today().isoformat()}.xlsx')
+        sheets.append((acc, _export_rows([s for s in stocks if s.demat_account == acc], total_cur)))
+    return _holdings_xlsx(HEAD, sheets, f'stocks_selected_{date.today().isoformat()}.xlsx',
+                          extra_formats=['percent'])
 
 
 def _mf_export_rows(funds):

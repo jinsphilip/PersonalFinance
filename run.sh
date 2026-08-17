@@ -20,7 +20,7 @@ echo "[setup] Installing dependencies..."
 "$VPY" -m pip install --upgrade pip >/dev/null
 "$VPY" -m pip install -r requirements.txt
 
-if [ ! -f "finance.db" ]; then
+if [ ! -f "finance.db" ] && [ ! -f "instance/finance.db" ]; then
     echo "[setup] Initialising database with sample data..."
     "$VPY" init_db.py
 fi

@@ -935,6 +935,12 @@ def _norm_tags(raw):
     return ', '.join(out)
 
 
+@app.route('/api/stocks/search')
+def api_stocks_search():
+    """Ticker autocomplete: ?q=... -> matching equities (symbol/name/exchange)."""
+    return jsonify(prices.search_symbols(request.args.get('q', '')))
+
+
 @app.route('/api/stocks', methods=['GET', 'POST'])
 def api_stocks():
     if request.method == 'GET':

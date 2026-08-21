@@ -65,6 +65,54 @@ def _yahoo_symbol(ticker, exchange):
     return f'{t}.{suffix}'
 
 
+YAHOO_SEARCH_URL = 'https://query1.finance.yahoo.com/v1/finance/search'
+# Yahoo exchange codes -> our exchange labels.
+_YEX = {'NSI': 'NSE', 'BSE': 'BSE', 'BOM': 'BSE', 'NMS': 'NASDAQ', 'NGM': 'NASDAQ',
+        'NCM': 'NASDAQ', 'NYQ': 'NYSE', 'ASE': 'NYSE', 'PCX': 'NYSE'}
+
+
+def search_symbols(query, timeout=8, limit=10):
+    """Symbol lookup for the ticker autocomplete. Returns a list of
+    {symbol, ticker, name, exchange, currency} for equities matching `query`.
+    Empty list on any failure (offline, blocked, no matches)."""
+    q = (query or '').strip()
+    if len(q) < 2:
+        return []
+    for host in _YAHOO_HOSTS:
+        try:
+            resp = requests.get(
+                YAHOO_SEARCH_URL.replace('query1.finance.yahoo.com', host),
+                params={'q': q, 'quotesCount': limit, 'newsCount': 0},
+                headers=_HEADERS, timeout=timeout,
+            )
+            if resp.status_code != 200:
+                continue
+            out = []
+            for it in resp.json().get('quotes', []):
+                if it.get('quoteType') != 'EQUITY' or not it.get('symbol'):
+                    continue
+                sym = it['symbol'].upper()
+                ex_code = (it.get('exchange') or '').upper()
+                if sym.endswith('.NS'):
+                    exch, cur, ticker = 'NSE', 'INR', sym[:-3]
+                elif sym.endswith('.BO'):
+                    exch, cur, ticker = 'BSE', 'INR', sym[:-3]
+                else:
+                    exch = _YEX.get(ex_code, 'NASDAQ')
+                    cur, ticker = 'USD', sym
+                out.append({
+                    'symbol': sym, 'ticker': ticker,
+                    'name': it.get('shortname') or it.get('longname') or ticker,
+                    'exchange': exch, 'currency': cur,
+                })
+                if len(out) >= limit:
+                    break
+            return out
+        except Exception:
+            continue
+    return []
+
+
 def _yahoo_quote(symbol, timeout):
     """Query a single Yahoo symbol across both hosts. Returns (price, currency,
     prev_close) or None if neither host resolves it."""

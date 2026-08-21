@@ -207,6 +207,12 @@ tbody tr:hover td { background: var(--surface-2); }
 .tv-link:hover { opacity: 1; }
 
 /* Failed-refresh list */
+.autocomplete-box { position: absolute; z-index: 50; left: 0; right: 0; top: 100%; margin-top: 2px; background: #fff; border: 1px solid var(--border, #e6e9ee); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); max-height: 260px; overflow-y: auto; }
+.autocomplete-box .ac-item { padding: 8px 12px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #f1f3f5; }
+.autocomplete-box .ac-item:last-child { border-bottom: none; }
+.autocomplete-box .ac-item:hover { background: var(--brand-soft, #eff6ff); }
+.autocomplete-box .ac-name { color: #6b7280; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.autocomplete-box .ac-empty { padding: 8px 12px; font-size: 12px; color: #9ca3af; }
 .tag-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .tag-bar-label { font-size: 12.5px; color: #6b7280; font-weight: 600; }
 .tag-chip { border: 1px solid var(--border, #e6e9ee); background: #fff; color: #374151; border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }

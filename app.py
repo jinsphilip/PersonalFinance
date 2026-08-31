@@ -1052,6 +1052,21 @@ def ccy_prefix(currency):
     return '$' if (currency or 'INR').upper() == 'USD' else '₹'
 
 
+def _get_or_create_demat_account(name):
+    """The DEMAT (broker) account named `name`, created if it doesn't exist."""
+    name = (name or 'Broker').strip()
+    acct = Account.query.filter(
+        Account.account_type_code == 'DEMAT',
+        db.func.lower(Account.name) == name.lower(),
+    ).first()
+    if not acct:
+        acct = Account(name=name, account_type_code='DEMAT',
+                       current_balance=0, subtype='chart')
+        db.session.add(acct)
+        db.session.flush()
+    return acct
+
+
 @app.route('/api/stocks/sell', methods=['POST'])
 def api_stocks_sell():
     """Sell part/all of a holding (double-entry): reduce quantity and credit the
@@ -1069,21 +1084,24 @@ def api_stocks_sell():
     fx = stock.fx_rate or 1.0
     proceeds_inr = qty * price * fx
     realized_inr = (price - stock.avg_price) * qty * fx
-    ticker, currency = stock.ticker, stock.currency
+    ticker, currency, demat = stock.ticker, stock.currency, stock.demat_account
 
     stock.quantity -= qty
     stock_dict = stock.to_dict() if stock.quantity > 0 else None
     if stock.quantity <= 0:
         db.session.delete(stock)
 
-    acct = None
+    # Proceeds credit an explicit account if given, else the matching broker
+    # (DEMAT) account named after the demat — created on the fly if needed.
     if data.get('account_id'):
         acct = Account.query.get_or_404(int(data['account_id']))
-        services.post_transaction(
-            from_account_id=None, to_account_id=acct.id, amount=proceeds_inr,
-            category_code='STOCK_SELL', transaction_date=data.get('date') or date.today().isoformat(),
-            description=f'Sell {qty} {ticker} @ {ccy_prefix(currency)}{price}', commit=False,
-        )
+    else:
+        acct = _get_or_create_demat_account(demat)
+    services.post_transaction(
+        from_account_id=None, to_account_id=acct.id, amount=proceeds_inr,
+        category_code='STOCK_SELL', transaction_date=data.get('date') or date.today().isoformat(),
+        description=f'Sell {qty} {ticker} @ {ccy_prefix(currency)}{price}', commit=False,
+    )
     db.session.commit()
     return jsonify({
         'stock': stock_dict,

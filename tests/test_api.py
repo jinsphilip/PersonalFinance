@@ -34,6 +34,31 @@ def test_stock_create_with_cagr(client):
     assert s['cagr_pct'] is not None
 
 
+def test_stock_sell_credits_broker_account(client):
+    client.post('/api/stocks', json={
+        'demat_account': 'Zerodha', 'company_name': 'Tata', 'ticker': 'TCS',
+        'quantity': 10, 'avg_price': 3000, 'current_price': 3600,
+        'exchange': 'NSE', 'currency': 'INR',
+    })
+    sid = client.get('/api/stocks').get_json()[0]['id']
+
+    # Partial sell, no account_id -> matching broker (DEMAT) account is created/credited.
+    r = client.post('/api/stocks/sell', json={'stock_id': sid, 'quantity': 4, 'price': 4000})
+    assert r.status_code == 201
+    body = r.get_json()
+    assert body['realized'] == 4000            # (4000-3000)*4
+    assert body['account']['name'] == 'Zerodha'
+    assert body['account']['account_type_code'] == 'DEMAT'
+    assert body['account']['current_balance'] == 16000   # 4*4000
+    assert client.get('/api/stocks').get_json()[0]['quantity'] == 6
+
+    # Full sell removes the holding and adds to the same broker account.
+    r2 = client.post('/api/stocks/sell', json={'stock_id': sid, 'quantity': 6, 'price': 4000})
+    assert r2.get_json()['stock'] is None
+    assert r2.get_json()['account']['current_balance'] == 40000   # 16000 + 6*4000
+    assert client.get('/api/stocks').get_json() == []
+
+
 def test_dashboard_shape(client):
     d = client.get('/api/dashboard').get_json()
     for key in ('net_worth', 'total_assets', 'total_liabilities', 'breakdown',

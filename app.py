@@ -266,7 +266,8 @@ def ensure_legacy_columns():
         'credits': [('account_id', 'INTEGER')],
         'chit_funds': [('account_id', 'INTEGER')],
         'stocks': [('currency', "VARCHAR(8) DEFAULT 'INR'"), ('fx_rate', 'FLOAT DEFAULT 1.0'),
-                   ('purchase_date', 'VARCHAR(20)'), ('prev_close', 'FLOAT'), ('tags', 'VARCHAR(255)')],
+                   ('purchase_date', 'VARCHAR(20)'), ('prev_close', 'FLOAT'), ('tags', 'VARCHAR(255)'),
+                   ('week52_high', 'FLOAT'), ('week52_low', 'FLOAT')],
         'mutual_funds': [
             ('is_sip', 'BOOLEAN DEFAULT 0'), ('sip_amount', 'FLOAT DEFAULT 0'),
             ('sip_day', 'INTEGER'), ('sip_frequency', "VARCHAR(15) DEFAULT 'monthly'"),
@@ -1645,11 +1646,15 @@ def api_refresh_prices():
     quotes = prices.fetch_stock_prices_bulk(stocks_to_refresh)
     fx_cache = {'INR': 1.0}   # currency → INR rate, fetched at most once per refresh
     for s in stocks_to_refresh:
-        price, currency, prev_close = quotes.get(id(s), (None, None, None))
+        price, currency, prev_close, wk_hi, wk_lo = quotes.get(id(s), (None, None, None, None, None))
         if price is not None:
             s.current_price = price
             if prev_close is not None:
                 s.prev_close = prev_close
+            if wk_hi is not None:
+                s.week52_high = wk_hi
+            if wk_lo is not None:
+                s.week52_low = wk_lo
             s.last_updated = today
             cur = (currency or s.currency or 'INR').upper()
             s.currency = cur

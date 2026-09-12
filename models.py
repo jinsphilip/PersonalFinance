@@ -251,6 +251,8 @@ class Stock(db.Model):
     fx_rate = db.Column(db.Float, default=1.0)           # INR per 1 unit of `currency`
     purchase_date = db.Column(db.String(20))             # for CAGR (optional)
     prev_close = db.Column(db.Float)                     # previous-day close (native), for daily change
+    week52_high = db.Column(db.Float)                    # 52-week high (native)
+    week52_low = db.Column(db.Float)                     # 52-week low (native)
     tags = db.Column(db.String(255))                     # comma-separated watch tags (optional)
 
     def to_dict(self):
@@ -289,6 +291,12 @@ class Stock(db.Model):
             'day_change': round(self.current_price - self.prev_close, 2) if self.prev_close else None,
             'day_change_pct': round((self.current_price - self.prev_close) / self.prev_close * 100, 2)
                               if self.prev_close else None,
+            'week52_high': self.week52_high,
+            'week52_low': self.week52_low,
+            'week52_pos': (round((self.current_price - self.week52_low)
+                                 / (self.week52_high - self.week52_low) * 100, 1)
+                           if self.week52_high and self.week52_low
+                           and self.week52_high != self.week52_low else None),
         }
 
     def _cagr(self, invested_native, current_native):

@@ -277,6 +277,18 @@ function tagBadges(r) {
   ).join('');
 }
 
+// 52-week range: low – high (native), with a bar showing where LTP sits.
+function wk52Cell(r) {
+  if (r.week52_low == null || r.week52_high == null)
+    return '<span style="color:#9ca3af">—</span>';
+  const sym = ccy(r.currency);
+  const pos = r.week52_pos;
+  const bar = pos != null
+    ? `<div class="wk52-bar" title="${fmtNum(pos)}% of 52-week range"><span style="left:${Math.max(0, Math.min(100, pos))}%"></span></div>`
+    : '';
+  return `<div style="text-align:right;font-size:12px">${sym}${fmtNum(r.week52_low)} – ${sym}${fmtNum(r.week52_high)}</div>${bar}`;
+}
+
 // Daily change vs previous close: arrow + native price move + %, colored.
 function dayCell(r) {
   if (r.day_change_pct == null || r.day_change == null)
@@ -414,6 +426,7 @@ const COLS = [
   { key: 'avg_price', label: 'Avg', num: true, align: 'right' },
   { key: 'current_price', label: 'LTP', num: true, align: 'right' },
   { key: 'day_change_pct', label: 'Day Δ', num: true, align: 'right' },
+  { key: 'week52_pos', label: '52W L–H', num: true, align: 'right' },
   { key: 'invested_value', label: 'Invested', num: true, align: 'right' },
   { key: 'current_value', label: 'Current', num: true, align: 'right' },
   { key: 'weight', label: 'Weight', num: true, align: 'right' },
@@ -646,6 +659,7 @@ async function load(skipFetch) {
                 <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
                 <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
                 <td data-label="Day Δ" style="text-align:right">${dayCell(r)}</td>
+                <td data-label="52W L–H" style="text-align:right">${wk52Cell(r)}</td>
                 <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
                 <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
                 <td data-label="Weight" style="text-align:right">${r.weight!=null?fmtNum(r.weight)+'%':''}</td>
@@ -680,8 +694,9 @@ function consolidate(items) {
         id: r.id, ticker: r.ticker, company_name: r.company_name, exchange: r.exchange,
         currency: r.currency, quantity: 0, _qa: 0,
         invested_value: 0, current_value: 0, current_price: r.current_price, demats: [],
-        // Same across demats of a ticker (shared LTP + prev close).
-        day_change: r.day_change, day_change_pct: r.day_change_pct, tags: [],
+        // Same across demats of a ticker (shared LTP + prev close + 52w range).
+        day_change: r.day_change, day_change_pct: r.day_change_pct,
+        week52_high: r.week52_high, week52_low: r.week52_low, week52_pos: r.week52_pos, tags: [],
       };
     }
     (r.tags || []).forEach(t => { if (!map[k].tags.includes(t)) map[k].tags.push(t); });
@@ -723,6 +738,7 @@ function renderConsolidated(wrap, source) {
           <td data-label="Avg" style="text-align:right">${ccy(r.currency)}${fmtNum(r.avg_price)}</td>
           <td data-label="LTP" style="text-align:right">${ccy(r.currency)}${fmtNum(r.current_price)}</td>
                 <td data-label="Day Δ" style="text-align:right">${dayCell(r)}</td>
+                <td data-label="52W L–H" style="text-align:right">${wk52Cell(r)}</td>
           <td data-label="Invested" style="text-align:right">${fmt(r.invested_value)}</td>
           <td data-label="Current" style="text-align:right">${fmt(r.current_value)}</td>
                 <td data-label="Weight" style="text-align:right">${r.weight!=null?fmtNum(r.weight)+'%':''}</td>

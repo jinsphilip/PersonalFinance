@@ -34,6 +34,17 @@ def test_stock_create_with_cagr(client):
     assert s['cagr_pct'] is not None
 
 
+def test_stock_week52_position(app_ctx):
+    from models import db, Stock
+    s = Stock(demat_account='Z', company_name='Tata', ticker='TCS', quantity=1,
+              avg_price=3000, current_price=3600, exchange='NSE', currency='INR',
+              week52_low=3000, week52_high=4000)
+    db.session.add(s); db.session.commit()
+    assert s.to_dict()['week52_pos'] == 60.0        # (3600-3000)/(4000-3000)*100
+    s.week52_low = None; db.session.commit()
+    assert s.to_dict()['week52_pos'] is None         # missing bound → None
+
+
 def test_stock_sell_credits_broker_account(client):
     client.post('/api/stocks', json={
         'demat_account': 'Zerodha', 'company_name': 'Tata', 'ticker': 'TCS',

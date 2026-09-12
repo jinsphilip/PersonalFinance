@@ -113,9 +113,14 @@ def search_symbols(query, timeout=8, limit=10):
     return []
 
 
+def _num(v):
+    return float(v) if v is not None else None
+
+
 def _yahoo_quote(symbol, timeout):
-    """Query a single Yahoo symbol across both hosts. Returns (price, currency,
-    prev_close) or None if neither host resolves it."""
+    """Query a single Yahoo symbol across both hosts. Returns
+    (price, currency, prev_close, week52_high, week52_low) or None if neither
+    host resolves it."""
     for host in _YAHOO_HOSTS:
         try:
             resp = requests.get(
@@ -129,20 +134,22 @@ def _yahoo_quote(symbol, timeout):
             if price is None:
                 continue
             prev = meta.get('chartPreviousClose', meta.get('previousClose'))
-            return (float(price), meta.get('currency'),
-                    float(prev) if prev is not None else None)
+            return (float(price), meta.get('currency'), _num(prev),
+                    _num(meta.get('fiftyTwoWeekHigh')), _num(meta.get('fiftyTwoWeekLow')))
         except Exception:
             continue
     return None
 
 
 def fetch_stock_price(ticker, exchange='NSE', timeout=15):
-    """Return (price, currency, prev_close) for a ticker, or (None, None, None).
+    """Return (price, currency, prev_close, week52_high, week52_low) for a
+    ticker, or all-None on failure.
 
     Tries both Yahoo hosts for the resolved symbol, and for Indian tickers falls
     back to the other exchange suffix (.NS <-> .BO) when the primary doesn't
     resolve. `currency` comes from Yahoo's meta; `prev_close` is the previous
-    trading day's close (native currency) for the daily change.
+    trading day's close (native) for the daily change; week52_high/low are the
+    52-week range (native).
     """
     candidates = [_yahoo_symbol(ticker, exchange)]
     ex = (exchange or 'NSE').upper()
@@ -153,7 +160,7 @@ def fetch_stock_price(ticker, exchange='NSE', timeout=15):
         res = _yahoo_quote(sym, timeout)
         if res is not None:
             return res
-    return (None, None, None)
+    return (None, None, None, None, None)
 
 
 def fetch_stock_prices_bulk(items, timeout=8, max_workers=12):
